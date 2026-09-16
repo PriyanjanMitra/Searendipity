@@ -1,0 +1,157 @@
+{% extends "base.html.jinja" %}
+{% block title %}Category: {{ telegram.category }} — Searendipity Report{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-6">
+    <!-- Breadcrumb & Nav -->
+    <div class="flex items-center justify-between">
+        <div class="text-sm breadcrumbs">
+            <ul>
+                <li><a href="index.html">Overview</a></li>
+                <li>Template Category</li>
+                <li class="font-bold text-primary">{{ telegram.category }}</li>
+            </ul>
+        </div>
+        <a href="index.html" class="btn btn-sm btn-outline">&larr; Back to Overview</a>
+    </div>
+
+    <!-- Category Header Card -->
+    <div class="bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight">Category: {{ telegram.category }}</h1>
+            <p class="text-base-content/70 mt-1">
+                Active between <span class="badge badge-primary badge-outline">{{ telegram.timeRange.start|renderdate }}</span> and <span class="badge badge-primary badge-outline">{{ telegram.timeRange.end|renderdate }}</span>
+            </p>
+        </div>
+        <div class="badge badge-secondary badge-lg font-mono">{{ telegram.templates|length }} Sub-Template(s)</div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+            <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/60">Sent Volume</div>
+            <div class="stat-value text-primary text-3xl font-black">{{ telegram.stats.delivered|displaynum }}</div>
+            <div class="stat-desc text-xs text-base-content/50">Total dispatched</div>
+        </div>
+
+        <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+            <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/60">Opened / Read</div>
+            <div class="stat-value text-info text-3xl font-black">{{ telegram.stats.readCount|displaynum }}</div>
+            <div class="stat-desc text-xs font-semibold text-info">{{ telegram.stats.readRate }} open rate</div>
+        </div>
+
+        <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+            <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/60">Recruited</div>
+            <div class="stat-value text-success text-3xl font-black">{{ telegram.stats.recruitCount|displaynum }}</div>
+            <div class="stat-desc text-xs font-semibold text-success">{{ telegram.stats.recruitRate }} conversion rate</div>
+        </div>
+
+        <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+            <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/60">Read to Recruit</div>
+            <div class="stat-value text-warning text-3xl font-black">{{ telegram.stats.readToRecruitRate }}</div>
+            <div class="stat-desc text-xs text-base-content/50">Recruits per read TG</div>
+        </div>
+    </div>
+
+    <!-- Detailed Breakdowns -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Breakdown by Method -->
+        <div class="card bg-base-100 shadow-sm border border-base-200">
+            <div class="card-body p-6">
+                <h3 class="card-title text-base font-bold uppercase tracking-wider text-base-content/70">Breakdown By Method</h3>
+                <div class="overflow-x-auto mt-2">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th class="text-right">Sent</th>
+                                <th class="text-right">Read</th>
+                                <th class="text-right">Recruits</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for method in (telegram.methods|sortstatsbyhighest) %}
+                            <tr>
+                                <td class="font-semibold">{{ method[0]|methodname }}</td>
+                                <td class="text-right font-mono">{{ method[1].delivered|displaynum }}</td>
+                                <td class="text-right font-mono">{{ method[1].readCount|displaynum }} ({{ method[1].readRate }})</td>
+                                <td class="text-right font-mono font-bold text-success">{{ method[1].recruitCount|displaynum }} ({{ method[1].recruitRate }})</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Breakdown by Nation -->
+        <div class="card bg-base-100 shadow-sm border border-base-200">
+            <div class="card-body p-6">
+                <h3 class="card-title text-base font-bold uppercase tracking-wider text-base-content/70">Breakdown By Sender Nation</h3>
+                <div class="overflow-x-auto mt-2">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Nation</th>
+                                <th class="text-right">Sent</th>
+                                <th class="text-right">Read</th>
+                                <th class="text-right">Recruits</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for nation in (telegram.nations|sortstatsbyhighest) %}
+                            <tr>
+                                <td class="font-semibold">{{ nation[0]|canonname }}</td>
+                                <td class="text-right font-mono">{{ nation[1].delivered|displaynum }}</td>
+                                <td class="text-right font-mono">{{ nation[1].readCount|displaynum }}</td>
+                                <td class="text-right font-mono font-bold text-success">{{ nation[1].recruitCount|displaynum }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Individual Template Cards -->
+    <div class="card bg-base-100 shadow-sm border border-base-200">
+        <div class="card-body p-6">
+            <h3 class="card-title text-xl font-bold">Individual Telegram Template Entries</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                {% for template in telegram.templates %}
+                <div class="p-4 rounded-xl bg-base-200/50 border border-base-300 flex flex-col justify-between gap-3">
+                    <div>
+                        <div class="flex items-center justify-between">
+                            <span class="font-mono font-black text-primary text-lg">%{{ template.tgid }}%</span>
+                            <span class="badge badge-sm badge-outline">{{ template.type|methodname }}</span>
+                        </div>
+                        <div class="text-xs text-base-content/60 mt-1">Sender: <span class="font-semibold">{{ template.nation|canonname }}</span></div>
+                        <div class="text-xs text-base-content/50">{{ template.timeRange.start|renderdate }} — {{ template.timeRange.end|renderdate }}</div>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2 text-center text-xs py-2 bg-base-100 rounded-lg border border-base-300">
+                        <div>
+                            <div class="text-base-content/50">Sent</div>
+                            <div class="font-mono font-bold">{{ template.stats.delivered|displaynum }}</div>
+                        </div>
+                        <div>
+                            <div class="text-base-content/50">Read</div>
+                            <div class="font-mono font-bold">{{ template.stats.readCount|displaynum }}</div>
+                        </div>
+                        <div>
+                            <div class="text-base-content/50">Recruits</div>
+                            <div class="font-mono font-bold text-success">{{ template.stats.recruitCount|displaynum }}</div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center text-xs pt-1 border-t border-base-300">
+                        <span class="text-base-content/60">Recruit Rate: <strong class="text-success">{{ template.stats.recruitRate }}</strong></span>
+                        <a href="https://www.nationstates.net/tgcategory={{ telegram.category }}/page=tg/tgid={{ template.tgid }}" target="_blank" class="link link-primary font-semibold">View on NS &nearr;</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
