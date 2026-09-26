@@ -1,5 +1,4 @@
 from discord.ext import commands
-from discord import app_commands
 from dataclasses import dataclass
 import discord
 from .db import Database
@@ -52,79 +51,77 @@ class GuildManager(commands.Cog):
         database.db.commit()
         cursor.close()
 
-    async def check_recruit_permissions(self, interaction: discord.Interaction) -> bool:
-        if not interaction.guild:
-            await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+    async def check_recruit_permissions(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            await ctx.send("This command can only be used in a server!")
             return False
 
-        if interaction.guild.id not in self.guilds:
-            await interaction.response.send_message("This server is not configured yet. Have the server owner run `/config` first.", ephemeral=True)
+        if ctx.guild.id not in self.guilds:
+            prefix = ctx.prefix or "!"
+            await ctx.send(f"This server is not configured yet. Have the server owner run `{prefix}config` first.")
             return False
 
-        guild_cfg = self.guilds[interaction.guild.id]
-        user = interaction.user
-        if isinstance(user, discord.Member):
-            if user.id == interaction.guild.owner_id:
+        guild_cfg = self.guilds[ctx.guild.id]
+        author = ctx.author
+        if isinstance(author, discord.Member):
+            if author.id == ctx.guild.owner_id:
                 return True
-            if user.get_role(guild_cfg.admin_role) is not None:
+            if author.get_role(guild_cfg.admin_role) is not None:
                 return True
-            if user.get_role(guild_cfg.recruit_role) is not None:
+            if author.get_role(guild_cfg.recruit_role) is not None:
                 return True
 
-        await interaction.response.send_message("You do not have permission to use recruitment commands in this server!", ephemeral=True)
+        await ctx.send("You do not have permission to use recruitment commands in this server!")
         return False
 
-    async def check_admin_permissions(self, interaction: discord.Interaction) -> bool:
-        if not interaction.guild:
-            await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+    async def check_admin_permissions(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            await ctx.send("This command can only be used in a server!")
             return False
 
-        if interaction.guild.id not in self.guilds:
-            await interaction.response.send_message("This server is not configured yet. Have the server owner run `/config` first.", ephemeral=True)
+        if ctx.guild.id not in self.guilds:
+            prefix = ctx.prefix or "!"
+            await ctx.send(f"This server is not configured yet. Have the server owner run `{prefix}config` first.")
             return False
 
-        guild_cfg = self.guilds[interaction.guild.id]
-        user = interaction.user
-        if isinstance(user, discord.Member):
-            if user.id == interaction.guild.owner_id:
+        guild_cfg = self.guilds[ctx.guild.id]
+        author = ctx.author
+        if isinstance(author, discord.Member):
+            if author.id == ctx.guild.owner_id:
                 return True
-            if user.get_role(guild_cfg.admin_role) is not None:
+            if author.get_role(guild_cfg.admin_role) is not None:
                 return True
 
-        await interaction.response.send_message("You must be an administrator to use this command!", ephemeral=True)
+        await ctx.send("You must be an administrator to use this command!")
         return False
 
-    @app_commands.command(name="config", description="Configure Searendipity recruitment settings for this server.")
-    @app_commands.describe(
-        admin_role="Role allowed to manage bot settings and stop other sessions",
-        recruit_role="Role allowed to run recruitment sessions",
-        recruit_wa="Whether to queue new World Assembly admissions",
-        recruit_newfounds="Whether to queue newly founded nations",
-        recruit_refounds="Whether to queue refounded nations"
+    @commands.command(
+        name="config",
+        help="Configure recruitment settings: config <@AdminRole> <@RecruitRole> [recruit_wa] [recruit_newfounds] [recruit_refounds]"
     )
     async def config(
         self,
-        interaction: discord.Interaction,
+        ctx: commands.Context,
         admin_role: discord.Role,
         recruit_role: discord.Role,
         recruit_wa: bool = True,
         recruit_newfounds: bool = True,
         recruit_refounds: bool = True
     ):
-        if not interaction.guild:
-            await interaction.response.send_message("This command must be run in a server.", ephemeral=True)
+        if not ctx.guild:
+            await ctx.send("This command must be run in a server.")
             return
 
-        if interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("Only the server owner can configure the bot.", ephemeral=True)
+        if ctx.author.id != ctx.guild.owner_id:
+            await ctx.send("Only the server owner can configure the bot.")
             return
 
         guild = Guild(admin_role.id, recruit_role.id, recruit_wa, recruit_newfounds, recruit_refounds)
-        self.sync(interaction.guild.id, guild)
-        self.guilds[interaction.guild.id] = guild
+        self.sync(ctx.guild.id, guild)
+        self.guilds[ctx.guild.id] = guild
 
         recruiter = self.bot.get_cog('RecruitmentManager')
         if recruiter:
             recruiter.update_backlog()
 
-        await interaction.response.send_message("Server recruitment configuration updated successfully!", ephemeral=True)
+        await ctx.send("Server recruitment configuration updated successfully!")

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from discord.ext import commands
-from discord import app_commands
 import typing
 import discord
 from .db import Database
@@ -73,19 +72,20 @@ class TemplateManager(commands.Cog):
         database.db.commit()
         cursor.close()
 
-    @app_commands.command(name="templates", description="List your registered recruitment telegram templates in this server.")
-    async def templates(self, interaction: discord.Interaction):
+    @commands.command(name="templates", help="List your registered recruitment templates: templates")
+    async def templates(self, ctx: commands.Context):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key not in self.user_templates:
-            await interaction.response.send_message("You do not have any templates configured in this server. Use `/setup` or `/add` to register one.", ephemeral=True)
+            prefix = ctx.prefix or "!"
+            await ctx.send(f"You do not have any templates configured in this server. Use `{prefix}setup` or `{prefix}add` to register one.")
             return
 
         user_tpls = self.user_templates[key]
-        embed = discord.Embed(title=f"Telegram Templates for {interaction.user.display_name}", color=0x3584e4)
+        embed = discord.Embed(title=f"Telegram Templates for {ctx.author.display_name}", color=0x3584e4)
 
         if user_tpls.wa:
             desc = "\n".join([f"• **{t.category}**: `%{t.tgid}%` — [View Stats](https://www.nationstates.net/tgcategory={t.category}/page=tg/tgid={t.tgid})" for t in user_tpls.wa])
@@ -100,33 +100,29 @@ class TemplateManager(commands.Cog):
             embed.add_field(name="Refounded", value=desc, inline=False)
 
         if not embed.fields:
-            await interaction.response.send_message("You have no templates saved. Register one using `/add` or `/setup`.", ephemeral=True)
+            prefix = ctx.prefix or "!"
+            await ctx.send(f"You have no templates saved. Register one using `{prefix}add` or `{prefix}setup`.")
             return
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="add", description="Add a new template to a specific recruitment category.")
-    @app_commands.describe(
-        destination="Target category: wa, newfound, or refound",
-        category="Label name for this template (e.g. standard_wa)",
-        tgid="NationStates template ID (e.g. %TEMPLATE-12345% or 12345)"
-    )
-    @app_commands.choices(destination=[
-        app_commands.Choice(name="World Assembly (WA)", value="wa"),
-        app_commands.Choice(name="Newly Founded", value="newfound"),
-        app_commands.Choice(name="Refounded", value="refound")
-    ])
-    async def add(self, interaction: discord.Interaction, destination: app_commands.Choice[str], category: str, tgid: str):
+    @commands.command(name="add", help="Add a template to a destination: add <wa|newfound|refound> <category> <tgid>")
+    async def add(self, ctx: commands.Context, destination: str, category: str, tgid: str):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
+            return
+
+        dest = destination.lower().strip()
+        if dest not in ("wa", "newfound", "refound"):
+            await ctx.send("Destination must be one of `wa`, `newfound`, or `refound`.")
             return
 
         numeric_id = util.parse_template_id(tgid)
         if numeric_id is None:
-            await interaction.response.send_message("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%` format.", ephemeral=True)
+            await ctx.send("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%` format.")
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key not in self.user_templates:
             self.user_templates[key] = UserTemplates([], [], [])
 
@@ -134,7 +130,6 @@ class TemplateManager(commands.Cog):
         clean_cat = category.strip().replace(":", "-")
         tpl = TGTemplate(category=clean_cat, tgid=numeric_id)
 
-        dest = destination.value
         if dest == "wa":
             tpls.wa.append(tpl)
         elif dest == "newfound":
@@ -142,22 +137,21 @@ class TemplateManager(commands.Cog):
         elif dest == "refound":
             tpls.refound.append(tpl)
 
-        self.sync(interaction.guild.id, interaction.user.id, tpls)
-        await interaction.response.send_message(f"Added **{dest.upper()}** template `{clean_cat}` with ID `{numeric_id}` successfully!", ephemeral=True)
+        self.sync(ctx.guild.id, ctx.author.id, tpls)
+        await ctx.send(f"Added **{dest.upper()}** template `{clean_cat}` with ID `{numeric_id}` successfully!")
 
-    @app_commands.command(name="setup", description="Register a generic template across all three destinations (WA, newfound, refound).")
-    @app_commands.describe(tgid="NationStates template ID (e.g. %TEMPLATE-12345% or 12345)")
-    async def setup(self, interaction: discord.Interaction, tgid: str):
+    @commands.command(name="setup", help="Register a generic template across all destinations: setup <tgid>")
+    async def setup(self, ctx: commands.Context, tgid: str):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
         numeric_id = util.parse_template_id(tgid)
         if numeric_id is None:
-            await interaction.response.send_message("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%` format.", ephemeral=True)
+            await ctx.send("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%` format.")
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key not in self.user_templates:
             self.user_templates[key] = UserTemplates([], [], [])
 
@@ -165,19 +159,18 @@ class TemplateManager(commands.Cog):
         for lst in (tpls.wa, tpls.newfound, tpls.refound):
             lst.append(TGTemplate(category="generic", tgid=numeric_id))
 
-        self.sync(interaction.guild.id, interaction.user.id, tpls)
-        await interaction.response.send_message(f"Generic template with ID `{numeric_id}` configured for all destinations!", ephemeral=True)
+        self.sync(ctx.guild.id, ctx.author.id, tpls)
+        await ctx.send(f"Generic template with ID `{numeric_id}` configured for WA, newfound, and refound destinations!")
 
-    @app_commands.command(name="remove", description="Remove all templates matching a specific category name.")
-    @app_commands.describe(category="Category name to remove")
-    async def remove(self, interaction: discord.Interaction, category: str):
+    @commands.command(name="remove", help="Remove templates matching a category: remove <category>")
+    async def remove(self, ctx: commands.Context, category: str):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key not in self.user_templates:
-            await interaction.response.send_message("You have no templates configured in this server.", ephemeral=True)
+            await ctx.send("You have no templates configured in this server.")
             return
 
         tpls = self.user_templates[key]
@@ -190,23 +183,23 @@ class TemplateManager(commands.Cog):
                 target_list.remove(t)
                 removed += 1
 
-        self.sync(interaction.guild.id, interaction.user.id, tpls)
-        await interaction.response.send_message(f"Removed {removed} template(s) matching category `{clean_cat}`.", ephemeral=True)
+        self.sync(ctx.guild.id, ctx.author.id, tpls)
+        await ctx.send(f"Removed {removed} template(s) matching category `{clean_cat}`.")
 
-    @app_commands.command(name="clear", description="Clear all your registered templates in this server.")
-    async def clear(self, interaction: discord.Interaction):
+    @commands.command(name="clear", help="Clear all your registered templates: clear")
+    async def clear(self, ctx: commands.Context):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key in self.user_templates:
             del self.user_templates[key]
 
         database: Database = self.bot.get_cog('Database')
         cursor = database.db.cursor()
-        cursor.execute("DELETE FROM user_templates WHERE guild_id = ? AND user_id = ?", (interaction.guild.id, interaction.user.id))
+        cursor.execute("DELETE FROM user_templates WHERE guild_id = ? AND user_id = ?", (ctx.guild.id, ctx.author.id))
         database.db.commit()
         cursor.close()
 
-        await interaction.response.send_message("All your templates in this server have been cleared.", ephemeral=True)
+        await ctx.send("All your templates in this server have been cleared.")

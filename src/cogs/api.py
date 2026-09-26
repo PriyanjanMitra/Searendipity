@@ -1,5 +1,4 @@
 from discord.ext import commands
-from discord import app_commands
 import discord
 import asyncio
 import sans
@@ -104,76 +103,79 @@ class APIRecruiter(commands.Cog):
         except Exception as e:
             print(f"[APIRecruiter] Failed to save api.json: {e}")
 
-    async def check_owner(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.bot.owner_id:
-            await interaction.response.send_message("Only the bot administrator can manage API recruitment.", ephemeral=True)
+    async def check_owner(self, ctx: commands.Context) -> bool:
+        if ctx.author.id != self.bot.owner_id:
+            await ctx.send("Only the bot administrator can manage API recruitment.")
             return False
         return True
 
-    @app_commands.command(name="apiguild", description="Set this server as the source queue for API recruitment.")
-    async def apiguild(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apiguild", help="Set this server as the source queue for API recruitment: apiguild")
+    async def apiguild(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
+            return
+        if not ctx.guild:
+            await ctx.send("This command must be run in a server.")
             return
 
-        self.guild = interaction.guild.id
+        self.guild = ctx.guild.id
         self.sync()
-        await interaction.response.send_message(f"API recruitment bound to server **{interaction.guild.name}** (`{self.guild}`).", ephemeral=True)
+        await ctx.send(f"API recruitment bound to server **{ctx.guild.name}** (`{self.guild}`).")
 
-    @app_commands.command(name="apiclient", description="Set the NationStates API Client Key.")
-    @app_commands.describe(client_key="NationStates API Client Key issued by moderators")
-    async def apiclient(self, interaction: discord.Interaction, client_key: str):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apiclient", help="Set NationStates API Client Key: apiclient <key>")
+    async def apiclient(self, ctx: commands.Context, client_key: str):
+        if not await self.check_owner(ctx):
             return
 
         self.client_key = client_key.strip()
         self.sync()
-        await interaction.response.send_message("API Client Key updated and saved successfully.", ephemeral=True)
+        await ctx.send("API Client Key updated and saved successfully.")
 
-    @app_commands.command(name="apistart", description="Start automated API recruitment.")
-    async def apistart(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apistart", help="Start automated API recruitment: apistart")
+    async def apistart(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
+        prefix = ctx.prefix or "!"
         if not self.guild:
-            await interaction.response.send_message("Please set an API server first using `/apiguild`.", ephemeral=True)
+            await ctx.send(f"Please set an API server first using `{prefix}apiguild`.")
             return
         if not self.client_key:
-            await interaction.response.send_message("Please set your API Client Key first using `/apiclient`.", ephemeral=True)
+            await ctx.send(f"Please set your API Client Key first using `{prefix}apiclient`.")
             return
         if self.recruitment_task and not self.recruitment_task.done():
-            await interaction.response.send_message("API recruitment is already running.", ephemeral=True)
+            await ctx.send("API recruitment is already running.")
             return
 
         self.recruitment_task = asyncio.create_task(self.telegram_loop())
-        await interaction.response.send_message("API recruitment loop started successfully.", ephemeral=True)
+        await ctx.send("API recruitment loop started successfully.")
 
-    @app_commands.command(name="apistop", description="Stop automated API recruitment.")
-    async def apistop(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apistop", help="Stop automated API recruitment: apistop")
+    async def apistop(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
         if not self.recruitment_task or self.recruitment_task.done():
-            await interaction.response.send_message("API recruitment is not running.", ephemeral=True)
+            await ctx.send("API recruitment is not running.")
             return
 
         self.recruitment_task.cancel()
         self.recruitment_task = None
-        await interaction.response.send_message("API recruitment loop stopped.", ephemeral=True)
+        await ctx.send("API recruitment loop stopped.")
 
-    @app_commands.command(name="apirestart", description="Restart automated API recruitment.")
-    async def apirestart(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apirestart", help="Restart automated API recruitment: apirestart")
+    async def apirestart(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
         if self.recruitment_task and not self.recruitment_task.done():
             self.recruitment_task.cancel()
 
         self.recruitment_task = asyncio.create_task(self.telegram_loop())
-        await interaction.response.send_message("API recruitment loop restarted.", ephemeral=True)
+        await ctx.send("API recruitment loop restarted.")
 
-    @app_commands.command(name="apistatus", description="Show current status of automated API recruitment.")
-    async def apistatus(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apistatus", help="Show current status of automated API recruitment: apistatus")
+    async def apistatus(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
         is_running = bool(self.recruitment_task and not self.recruitment_task.done())
@@ -198,11 +200,11 @@ class APIRecruiter(commands.Cog):
         if is_running:
             embed.add_field(name="Started At", value=f"<t:{int(self.start_time.timestamp())}:R>", inline=False)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="apitemplates", description="List all registered API recruitment templates.")
-    async def apitemplates(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apitemplates", help="List registered API recruitment templates: apitemplates")
+    async def apitemplates(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
         embed = discord.Embed(title="🔑 Registered API Recruitment Templates", color=0x3584e4)
@@ -219,37 +221,36 @@ class APIRecruiter(commands.Cog):
             desc = "\n".join([f"• **{t.category}**: `%{t.tgid}%` (key: `{t.key}`) — [Link](https://www.nationstates.net/tgcategory={t.category}/page=tg/tgid={t.tgid})" for t in self.templates.refound])
             embed.add_field(name="Refounded", value=desc, inline=False)
 
+        prefix = ctx.prefix or "!"
         if not embed.fields:
-            await interaction.response.send_message("No API templates registered yet. Use `/apiadd` or `/apisetup`.", ephemeral=True)
+            await ctx.send(f"No API templates registered yet. Use `{prefix}apiadd` or `{prefix}apisetup`.")
             return
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        try:
+            await ctx.author.send(embed=embed)
+            if ctx.guild:
+                await ctx.send("📬 API templates sent to your DMs for security.")
+        except Exception:
+            await ctx.send(embed=embed)
 
-    @app_commands.command(name="apiadd", description="Add a template for automated API recruitment.")
-    @app_commands.describe(
-        destination="Target category: wa, newfound, or refound",
-        category="Label name for this template",
-        tgid="NationStates template ID (e.g. %TEMPLATE-12345% or 12345)",
-        key="Secret telegram key provided by NationStates"
-    )
-    @app_commands.choices(destination=[
-        app_commands.Choice(name="World Assembly (WA)", value="wa"),
-        app_commands.Choice(name="Newly Founded", value="newfound"),
-        app_commands.Choice(name="Refounded", value="refound")
-    ])
-    async def apiadd(self, interaction: discord.Interaction, destination: app_commands.Choice[str], category: str, tgid: str, key: str):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apiadd", help="Add an API template: apiadd <wa|newfound|refound> <category> <tgid> <key>")
+    async def apiadd(self, ctx: commands.Context, destination: str, category: str, tgid: str, key: str):
+        if not await self.check_owner(ctx):
+            return
+
+        dest = destination.lower().strip()
+        if dest not in ("wa", "newfound", "refound"):
+            await ctx.send("Destination must be one of `wa`, `newfound`, or `refound`.")
             return
 
         numeric_id = util.parse_template_id(tgid)
         if numeric_id is None:
-            await interaction.response.send_message("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%`.", ephemeral=True)
+            await ctx.send("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%`.")
             return
 
         clean_cat = category.strip().replace(":", "-")
         tpl = APITGTemplate(category=clean_cat, tgid=numeric_id, key=key.strip())
 
-        dest = destination.value
         if dest == "wa":
             self.templates.wa.append(tpl)
         elif dest == "newfound":
@@ -258,31 +259,27 @@ class APIRecruiter(commands.Cog):
             self.templates.refound.append(tpl)
 
         self.sync()
-        await interaction.response.send_message(f"Added API **{dest.upper()}** template `{clean_cat}` (`{numeric_id}`).", ephemeral=True)
+        await ctx.send(f"Added API **{dest.upper()}** template `{clean_cat}` (`{numeric_id}`).")
 
-    @app_commands.command(name="apisetup", description="Set up a generic template for all three destinations.")
-    @app_commands.describe(
-        tgid="NationStates template ID (e.g. %TEMPLATE-12345% or 12345)",
-        key="Secret telegram key provided by NationStates"
-    )
-    async def apisetup(self, interaction: discord.Interaction, tgid: str, key: str):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apisetup", help="Set generic API template across destinations: apisetup <tgid> <key>")
+    async def apisetup(self, ctx: commands.Context, tgid: str, key: str):
+        if not await self.check_owner(ctx):
             return
 
         numeric_id = util.parse_template_id(tgid)
         if numeric_id is None:
-            await interaction.response.send_message("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%`.", ephemeral=True)
+            await ctx.send("Invalid Template ID! Provide a numeric ID or `%TEMPLATE-12345%`.")
             return
 
         for lst in (self.templates.wa, self.templates.newfound, self.templates.refound):
             lst.append(APITGTemplate(category="generic", tgid=numeric_id, key=key.strip()))
 
         self.sync()
-        await interaction.response.send_message(f"Configured generic API template `{numeric_id}` for WA, newfounds, and refounds.", ephemeral=True)
+        await ctx.send(f"Configured generic API template `{numeric_id}` for WA, newfounds, and refounds.")
 
-    @app_commands.command(name="apiremove", description="Remove API templates matching a category name.")
-    async def apiremove(self, interaction: discord.Interaction, category: str):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apiremove", help="Remove API templates by category: apiremove <category>")
+    async def apiremove(self, ctx: commands.Context, category: str):
+        if not await self.check_owner(ctx):
             return
 
         clean_cat = category.strip()
@@ -294,16 +291,16 @@ class APIRecruiter(commands.Cog):
                 removed += 1
 
         self.sync()
-        await interaction.response.send_message(f"Removed {removed} API template(s) matching category `{clean_cat}`.", ephemeral=True)
+        await ctx.send(f"Removed {removed} API template(s) matching category `{clean_cat}`.")
 
-    @app_commands.command(name="apiclear", description="Clear all registered API templates.")
-    async def apiclear(self, interaction: discord.Interaction):
-        if not await self.check_owner(interaction):
+    @commands.command(name="apiclear", help="Clear all registered API templates: apiclear")
+    async def apiclear(self, ctx: commands.Context):
+        if not await self.check_owner(ctx):
             return
 
         self.templates = APITemplates([], [], [])
         self.sync()
-        await interaction.response.send_message("All API templates have been cleared.", ephemeral=True)
+        await ctx.send("All API templates have been cleared.")
 
     async def telegram_loop(self):
         recruit: RecruitmentManager = self.bot.get_cog('RecruitmentManager')

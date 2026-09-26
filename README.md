@@ -4,7 +4,7 @@
 
 **Searendipity** is an all-in-one suite for [NationStates](https://www.nationstates.net) recruitment, offering real-time nation event streaming, interactive Discord manual recruitment with browser container support, automated background API recruitment, intelligent puppet filtering, and campaign analytics dashboards.
 
-Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/Moonlark), Searendipity features optimized stream parsing, memory-efficient data dump processing, and modern DaisyUI/Tailwind CSS reporting.
+Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/Moonlark), Searendipity uses traditional message prefix commands (`!` or `?`, e.g. `!recruit 60` or `?recruit 60`) with optimized stream parsing, memory-efficient data dump processing, and modern DaisyUI/Tailwind CSS reporting.
 
 ---
 
@@ -15,7 +15,7 @@ Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/
   - Compares name prefix similarity across recent joins to skip puppet cascades.
   - Verifies `tgcanrecruit` via the NationStates API to skip nations that disable recruitment telegrams.
   - Excludes seasoned nations (>500M population) and known jump point regions (`suspicious`, `artificial_solar_system`).
-- **👥 Discord Bot Manual Recruitment**:
+- **👥 Discord Bot Manual Recruitment (Prefix: `!` or `?`)**:
   - **Shared Queues**: Fairly distributes nations across recruiters working concurrently in the same guild.
   - **A/B Testing**: Automatically alternates through multiple configured templates for each category (`wa`, `newfound`, `refound`).
   - **1-Click Dispatch**: Generates Discord embeds with clickable URL buttons that pre-populate the NationStates compose window with up to 8 targets and template tags.
@@ -38,7 +38,7 @@ Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/
 ### Prerequisites
 
 - Python 3.11+ (tested on Python 3.13 and Python 3.14)
-- A Discord Application Token with **Server Members Intent** enabled.
+- A Discord Application Token with **Server Members Intent** and **Message Content Intent** enabled.
 - A main NationStates nation name (for API User-Agent compliance).
 
 ### 1. Clone & Set Up Virtual Environment
@@ -69,6 +69,7 @@ Edit `.env`:
 TOKEN="your_discord_bot_token"
 OWNER_ID="your_discord_user_id"
 DEFAULT_NATION="your_main_nation_name"
+COMMAND_PREFIX="!,?"
 ```
 
 ---
@@ -81,40 +82,40 @@ Start Searendipity with your main nation name:
 python searendipity.py -n "My_Nation"
 ```
 
-Once online, the bot automatically syncs slash commands with Discord.
+You can optionally specify a custom prefix with `-p` (e.g. `python searendipity.py -n "My_Nation" -p "?"`). Both `!` and `?` are supported by default.
 
-### Discord Slash Commands
+### Discord Bot Commands (`!` or `?`)
 
 #### Server Administration
-- `/config <admin_role> <recruit_role> [recruit_wa] [recruit_newfounds] [recruit_refounds]`: Configures roles and enabled categories for the server (Owner only).
+- `!config <@AdminRole> <@RecruitRole> [recruit_wa] [recruit_newfounds] [recruit_refounds]`: Configures roles and enabled categories for the server (Server Owner only).
 
 #### Template Management
-- `/setup <tgid>`: Registers a generic template (e.g. `%TEMPLATE-12345%`) across all destinations (WA, newfounds, refounds).
-- `/add <destination> <category> <tgid>`: Registers a template for a specific destination (`wa`, `newfound`, or `refound`).
-- `/templates`: Lists your active registered templates in the server with quick links.
-- `/remove <category>`: Removes templates belonging to a specific category.
-- `/clear`: Clears all your registered templates in the current server.
+- `!setup <tgid>`: Registers a generic template (e.g. `!setup %TEMPLATE-12345%` or `!setup 12345`) across all destinations (WA, newfounds, refounds).
+- `!add <destination> <category> <tgid>`: Registers a template for a specific destination (`wa`, `newfound`, or `refound`). E.g. `!add wa greeting_a 12345`.
+- `!templates`: Lists your active registered templates in the server with quick links.
+- `!remove <category>`: Removes templates belonging to a specific category. E.g. `!remove greeting_a`.
+- `!clear`: Clears all your registered templates in the current server.
 
 #### Manual Recruitment
-- `/recruit [interval] [container]`: Starts an active recruitment session. Dispatches embeds every `interval` seconds (default 60s). Optionally pass container name for Containerise.
-- `/stop`: Stops your active recruitment session.
-- `/forcestop <user>`: As an administrator, terminates an idle or abandoned user session.
-- `/queue`: Displays real-time backlog queue counts for the server.
-- `/timer`: Shows recommended cooldown intervals based on nation age.
-- `/stats [since]`: Displays paginated recruiter leaderboard for the server (all-time or last N days).
+- `!recruit [interval] [container]`: Starts an active recruitment session. Dispatches embeds every `interval` seconds (default 60s). Optionally pass container name for Containerise (e.g. `!recruit 60 MyContainer`).
+- `!stop`: Stops your active recruitment session.
+- `!forcestop <@User>`: As an administrator, terminates an idle or abandoned user session.
+- `!queue`: Displays real-time backlog queue counts for the server.
+- `!timer`: Shows recommended cooldown intervals based on nation age.
+- `!stats [since]`: Displays paginated recruiter leaderboard for the server (all-time or last N days, e.g. `!stats 7`).
 
 #### Automated API Recruitment (Bot Owner Only)
-- `/apiguild`: Binds API recruitment to the current server's queues.
-- `/apiclient <client_key>`: Sets the NationStates API client key.
-- `/apisetup <tgid> <key>`: Registers a generic API template across all destinations.
-- `/apiadd <destination> <category> <tgid> <key>`: Adds an API template with its secret key.
-- `/apistart`: Starts the background API telegram loop.
-- `/apistop`: Stops background API recruitment.
-- `/apirestart`: Restarts the API loop.
-- `/apistatus`: Displays API recruitment status, uptime, and telegram counters.
-- `/apitemplates`: Lists registered API templates and secret keys.
-- `/apiremove <category>`: Removes API templates by category.
-- `/apiclear`: Clears all registered API templates.
+- `!apiguild`: Binds API recruitment to the current server's queues.
+- `!apiclient <client_key>`: Sets the NationStates API client key.
+- `!apisetup <tgid> <key>`: Registers a generic API template across all destinations.
+- `!apiadd <destination> <category> <tgid> <key>`: Adds an API template with its secret key.
+- `!apistart`: Starts the background API telegram loop.
+- `!apistop`: Stops background API recruitment.
+- `!apirestart`: Restarts the API loop.
+- `!apistatus`: Displays API recruitment status, uptime, and telegram counters.
+- `!apitemplates`: Lists registered API templates and secret keys (sent to DM for security).
+- `!apiremove <category>`: Removes API templates by category.
+- `!apiclear`: Clears all registered API templates.
 
 ---
 

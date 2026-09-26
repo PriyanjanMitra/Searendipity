@@ -1,17 +1,19 @@
 # pagination.py - Interactive Discord embed pagination view
 import discord
+from discord.ext import commands
 from typing import Callable, Optional, Tuple, Awaitable
 
 class Pagination(discord.ui.View):
-    def __init__(self, interaction: discord.Interaction, get_page: Callable[[int], Awaitable[Tuple[discord.Embed, int]]]):
-        self.interaction = interaction
+    def __init__(self, ctx: commands.Context, get_page: Callable[[int], Awaitable[Tuple[discord.Embed, int]]]):
+        super().__init__(timeout=120)
+        self.ctx = ctx
         self.get_page = get_page
         self.total_pages: Optional[int] = None
         self.index = 1
-        super().__init__(timeout=120)
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user == self.interaction.user:
+        if interaction.user == self.ctx.author:
             return True
         else:
             emb = discord.Embed(
@@ -24,10 +26,10 @@ class Pagination(discord.ui.View):
     async def navigate(self) -> None:
         emb, self.total_pages = await self.get_page(self.index)
         if self.total_pages <= 1:
-            await self.interaction.response.send_message(embed=emb)
+            self.message = await self.ctx.send(embed=emb)
         else:
             self.update_buttons()
-            await self.interaction.response.send_message(embed=emb, view=self)
+            self.message = await self.ctx.send(embed=emb, view=self)
 
     async def edit_page(self, interaction: discord.Interaction) -> None:
         emb, self.total_pages = await self.get_page(self.index)
@@ -64,11 +66,11 @@ class Pagination(discord.ui.View):
         await self.edit_page(interaction)
 
     async def on_timeout(self) -> None:
-        try:
-            message = await self.interaction.original_response()
-            await message.edit(view=None)
-        except Exception:
-            pass
+        if self.message:
+            try:
+                await self.message.edit(view=None)
+            except Exception:
+                pass
 
     @staticmethod
     def compute_total_pages(total_results: int, results_per_page: int) -> int:

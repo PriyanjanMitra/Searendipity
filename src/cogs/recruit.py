@@ -1,5 +1,4 @@
 from discord.ext import commands
-from discord import app_commands
 from collections import deque
 import typing
 import discord
@@ -162,9 +161,9 @@ class RecruitmentManager(commands.Cog):
             return f"https://www.nationstates.net/container={container}/page=compose_telegram?tgto={recipients}&message=%TEMPLATE-{template.tgid}%&generated_by={identifier}"
         return f"https://www.nationstates.net/page=compose_telegram?tgto={recipients}&message=%TEMPLATE-{template.tgid}%&generated_by={identifier}"
 
-    async def send_recruitment_embed(self, interaction: discord.Interaction, target_type: str, template: TGTemplate, nations: list[str], container: str | None):
+    async def send_recruitment_embed(self, channel: discord.abc.Messageable, target_type: str, template: TGTemplate, nations: list[str], container: str | None, user: discord.User | discord.Member):
         link = self.generate_telegram_link(template, nations, container)
-        view = RecruiterView(interaction.user, link)
+        view = RecruiterView(user, link)
 
         embed = discord.Embed(
             title=f"📬 Dispatch Ready: {target_type}",
@@ -178,24 +177,25 @@ class RecruitmentManager(commands.Cog):
         else:
             embed.set_footer(text="Default Browser Profile | Searendipity")
 
-        msg = await interaction.channel.send(content=f"{interaction.user.mention}", embed=embed, view=view)
+        msg = await channel.send(content=f"{user.mention}", embed=embed, view=view)
         try:
             await msg.add_reaction("✅")
         except Exception:
             pass
 
-    async def recruit_task(self, interaction: discord.Interaction, interval: int, container: str | None) -> None:
+    async def recruit_task(self, ctx: commands.Context, interval: int, container: str | None) -> None:
         templates_cog: TemplateManager = self.bot.get_cog('TemplateManager')
         guilds_cog: GuildManager = self.bot.get_cog('GuildManager')
         stats_cog: StatsTracker = self.bot.get_cog('StatsTracker')
 
-        guild_id = interaction.guild.id
-        user_id = interaction.user.id
+        guild_id = ctx.guild.id
+        user_id = ctx.author.id
         key = (guild_id, user_id)
 
         user_template = templates_cog.user_templates.get(key)
+        prefix = ctx.prefix or "!"
         if not user_template:
-            await interaction.followup.send("No templates configured! Use `/add` or `/setup` before recruiting.", ephemeral=True)
+            await ctx.send(f"No templates configured! Use `{prefix}add` or `{prefix}setup` before recruiting.")
             return
 
         guild_cfg = guilds_cog.guilds.get(guild_id)
@@ -211,7 +211,7 @@ class RecruitmentManager(commands.Cog):
             do_refounds = False
 
         if not (do_wa or do_newfounds or do_refounds):
-            await interaction.followup.send("No active destination categories with configured templates found.", ephemeral=True)
+            await ctx.send("No active destination categories with configured templates found.")
             return
 
         conditions = [do_wa, do_newfounds, do_refounds]
@@ -220,8 +220,8 @@ class RecruitmentManager(commands.Cog):
         labels = ["New WA Member", "Newly Founded", "Refounded"]
         indexes = [0, 0, 0]
 
-        await interaction.channel.send(
-            f"🎯 {interaction.user.mention} started recruiting every **{interval}** seconds! Stand by for incoming nations..."
+        await ctx.send(
+            f"🎯 {ctx.author.mention} started recruiting every **{interval}** seconds! Stand by for incoming nations..."
         )
 
         try:
@@ -242,7 +242,7 @@ class RecruitmentManager(commands.Cog):
                                 sent_counts = [0, 0, 0]
                                 sent_counts[i] = len(nations)
 
-                                await self.send_recruitment_embed(interaction, labels[i], tpl, nations, container)
+                                await self.send_recruitment_embed(ctx.channel, labels[i], tpl, nations, container, ctx.author)
                                 dispatched = True
 
                                 if stats_cog:
@@ -260,88 +260,86 @@ class RecruitmentManager(commands.Cog):
         except asyncio.CancelledError:
             pass
 
-    @app_commands.command(name="recruit", description="Start an active manual recruitment session.")
-    @app_commands.describe(
-        interval="Cooldown between telegram dispatches in seconds (e.g. 60-180)",
-        container="Optional browser container name for Containerise multi-nation users"
+    @commands.command(
+        name="recruit",
+        help="Start manual recruitment: recruit [interval=60] [container]"
     )
-    async def recruit(self, interaction: discord.Interaction, interval: int = 60, container: typing.Optional[str] = None):
+    async def recruit(self, ctx: commands.Context, interval: int = 60, container: typing.Optional[str] = None):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
         templates_cog: TemplateManager = self.bot.get_cog('TemplateManager')
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
+        prefix = ctx.prefix or "!"
         if key not in templates_cog.user_templates:
-            await interaction.response.send_message("You have no templates configured in this server. Use `/setup` or `/add` first.", ephemeral=True)
+            await ctx.send(f"You have no templates configured in this server. Use `{prefix}setup` or `{prefix}add` first.")
             return
 
         if key in self.recruiters:
-            await interaction.response.send_message("You already have an active recruitment session running! Use `/stop` to end it.", ephemeral=True)
+            await ctx.send(f"You already have an active recruitment session running! Use `{prefix}stop` to end it.")
             return
 
         if interval < 30:
-            await interaction.response.send_message("Recruitment cooldown cannot be less than 30 seconds to respect NS limits.", ephemeral=True)
+            await ctx.send("Recruitment cooldown cannot be less than 30 seconds to respect NS limits.")
             return
 
-        await interaction.response.send_message(f"Starting your recruitment session (interval: {interval}s)...")
-        task = asyncio.create_task(self.recruit_task(interaction, interval, container))
+        task = asyncio.create_task(self.recruit_task(ctx, interval, container))
         self.recruiters[key] = task
 
-    @app_commands.command(name="stop", description="Stop your active recruitment session.")
-    async def stop(self, interaction: discord.Interaction):
+    @commands.command(name="stop", help="Stop your active recruitment session: stop")
+    async def stop(self, ctx: commands.Context):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
-        key = (interaction.guild.id, interaction.user.id)
+        key = (ctx.guild.id, ctx.author.id)
         if key not in self.recruiters:
-            await interaction.response.send_message("You don't have an active recruitment session running.", ephemeral=True)
+            await ctx.send("You don't have an active recruitment session running.")
             return
 
         task = self.recruiters.pop(key)
         task.cancel()
-        await interaction.response.send_message("Your recruitment session has been stopped.")
+        await ctx.send("Your recruitment session has been stopped.")
 
-    @app_commands.command(name="forcestop", description="Force stop another user's recruitment session (Admin only).")
-    @app_commands.describe(user="The member whose session you want to stop")
-    async def forcestop(self, interaction: discord.Interaction, user: discord.Member):
+    @commands.command(name="forcestop", help="Force stop another user's recruitment session (Admin only): forcestop <@User>")
+    async def forcestop(self, ctx: commands.Context, user: discord.Member):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_admin_permissions(interaction):
+        if not await guilds.check_admin_permissions(ctx):
             return
 
-        key = (interaction.guild.id, user.id)
+        key = (ctx.guild.id, user.id)
         if key not in self.recruiters:
-            await interaction.response.send_message(f"{user.display_name} does not have an active recruitment session.", ephemeral=True)
+            await ctx.send(f"{user.display_name} does not have an active recruitment session.")
             return
 
         task = self.recruiters.pop(key)
         task.cancel()
-        await interaction.response.send_message(f"Terminated recruitment session for {user.mention}.")
+        await ctx.send(f"Terminated recruitment session for {user.mention}.")
 
-    @app_commands.command(name="queue", description="Check how many nations are currently queued in this server.")
-    async def queue(self, interaction: discord.Interaction):
+    @commands.command(name="queue", help="Check queue backlog: queue")
+    async def queue(self, ctx: commands.Context):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
-        self._ensure_guild_queues(interaction.guild.id)
-        wa_len = len(self.wa_queue[interaction.guild.id].nations)
-        new_len = len(self.newfound_queue[interaction.guild.id].nations)
-        ref_len = len(self.refound_queue[interaction.guild.id].nations)
+        self._ensure_guild_queues(ctx.guild.id)
+        wa_len = len(self.wa_queue[ctx.guild.id].nations)
+        new_len = len(self.newfound_queue[ctx.guild.id].nations)
+        ref_len = len(self.refound_queue[ctx.guild.id].nations)
 
         embed = discord.Embed(
-            title=f"📊 Queue Backlog: {interaction.guild.name}",
+            title=f"📊 Queue Backlog: {ctx.guild.name}",
             color=0x3584e4,
             timestamp=datetime.now()
         )
         embed.add_field(name="World Assembly (WA)", value=f"`{wa_len}` / {WA_BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Newly Founded", value=f"`{new_len}` / {BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Refounded", value=f"`{ref_len}` / {BACKLOG_SIZE}", inline=True)
-        await interaction.response.send_message(embed=embed)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="timer", description="View recommended recruitment cooldown intervals based on nation age.")
-    async def timer(self, interaction: discord.Interaction):
+    @commands.command(name="timer", help="View recommended recruitment cooldown intervals: timer")
+    async def timer(self, ctx: commands.Context):
         embed = discord.Embed(
             title="⏱️ NationStates Recruitment Cooldown Guidelines",
             description="Recruiting cooldowns are enforced by NationStates based on how old your sending nation is:",
@@ -351,4 +349,4 @@ class RecruitmentManager(commands.Cog):
         embed.add_field(name="Nations 8 – 30 days old", value="**120 seconds** (2 minutes) cooldown", inline=False)
         embed.add_field(name="Nations > 30 days old", value="**60 seconds** (1 minute) cooldown", inline=False)
         embed.add_field(name="API Recruitment", value="Always strictly **180 seconds** per telegram", inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)

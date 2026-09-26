@@ -1,5 +1,4 @@
 from discord.ext import commands
-from discord import app_commands
 from dataclasses import dataclass
 from datetime import date, timedelta
 import typing
@@ -73,11 +72,10 @@ class StatsTracker(commands.Cog):
 
         self.sync(guild_id, user_id, today)
 
-    @app_commands.command(name="stats", description="Show recruitment leaderboard and statistics for this server.")
-    @app_commands.describe(since="Show statistics for the past N days (leave blank for all-time)")
-    async def stats(self, interaction: discord.Interaction, since: typing.Optional[int] = None):
+    @commands.command(name="stats", help="Show recruitment leaderboard: stats [since_days]")
+    async def stats(self, ctx: commands.Context, since: typing.Optional[int] = None):
         guilds: GuildManager = self.bot.get_cog('GuildManager')
-        if not await guilds.check_recruit_permissions(interaction):
+        if not await guilds.check_recruit_permissions(ctx):
             return
 
         start_day = None
@@ -87,12 +85,12 @@ class StatsTracker(commands.Cog):
         recruiter_totals: dict[str, list[int]] = {}
 
         for (guild_id, user_id, day), stat in self.stat_map.items():
-            if guild_id != interaction.guild.id:
+            if guild_id != ctx.guild.id:
                 continue
             if start_day is not None and day < start_day:
                 continue
 
-            member = interaction.guild.get_member(user_id)
+            member = ctx.guild.get_member(user_id)
             name = member.display_name if member else f"User ID {user_id}"
 
             if name not in recruiter_totals:
@@ -111,10 +109,10 @@ class StatsTracker(commands.Cog):
 
         if not recruiters:
             if start_day:
-                msg = f"No recruitment telegrams have been sent in **{interaction.guild.name}** since {start_day.strftime('%b %d, %Y')}."
+                msg = f"No recruitment telegrams have been sent in **{ctx.guild.name}** since {start_day.strftime('%b %d, %Y')}."
             else:
-                msg = f"No recruitment telegrams recorded yet for **{interaction.guild.name}**."
-            await interaction.response.send_message(msg)
+                msg = f"No recruitment telegrams recorded yet for **{ctx.guild.name}**."
+            await ctx.send(msg)
             return
 
         PER_PAGE = 10
@@ -122,7 +120,7 @@ class StatsTracker(commands.Cog):
 
         async def get_page(page: int):
             emb = discord.Embed(
-                title=f"🏆 Recruitment Leaderboard — {interaction.guild.name}",
+                title=f"🏆 Recruitment Leaderboard — {ctx.guild.name}",
                 description=f"Showing stats: **{title_suffix}**\n\n",
                 color=0x9141ac
             )
@@ -136,4 +134,4 @@ class StatsTracker(commands.Cog):
             emb.set_footer(text=f"Page {page} of {total_pages} | Searendipity")
             return emb, total_pages
 
-        await Pagination(interaction, get_page).navigate()
+        await Pagination(ctx, get_page).navigate()

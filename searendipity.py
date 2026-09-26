@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Searendipity: The serendipitous NationStates recruitment and analytics suite.
-Discord manual & API recruitment bot.
+Discord manual & API recruitment bot using prefix commands (default: ! or ?).
 """
 
 import discord
@@ -25,15 +25,21 @@ from src.cogs.api import APIRecruiter
 VERSION = "0.1.0"
 
 class SearendipityBot(commands.Bot):
-    def __init__(self, connection: sqlite3.Connection, nation: str, owner_id: int):
+    def __init__(self, connection: sqlite3.Connection, nation: str, owner_id: int, prefixes: list[str]):
         intents = discord.Intents.default()
         intents.members = True
+        intents.message_content = True  # Required for reading prefix commands (! or ?)
 
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(
+            command_prefix=commands.when_mentioned_or(*prefixes),
+            intents=intents,
+            help_command=commands.DefaultHelpCommand(dm_help=False)
+        )
 
         self.db_connection = connection
         self.nation = util.format_nation_or_region(nation)
         self.owner_id = owner_id
+        self.prefixes = prefixes
 
     async def setup_hook(self):
         try:
@@ -54,13 +60,21 @@ class SearendipityBot(commands.Bot):
         print(f"==================================================")
         print(f"  Searendipity v{VERSION} — Online as {self.user}")
         print(f"  Operating Nation: {self.nation}")
+        print(f"  Command Prefixes: {', '.join(self.prefixes)}")
         print(f"==================================================")
 
-        try:
-            synced = await self.tree.sync()
-            print(f"[Searendipity] Successfully synced {len(synced)} application slash commands.")
-        except Exception as e:
-            print(f"[Searendipity] Error syncing application commands: {e}")
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        if isinstance(error, commands.CommandNotFound):
+            return
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f"Missing required argument: `{error.param.name}`. Type `{ctx.prefix}help {ctx.command.name}` for usage details.")
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send(f"Invalid argument provided: {error}. Type `{ctx.prefix}help {ctx.command.name}` for usage details.")
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"This command is on cooldown. Try again in {error.retry_after:.1f}s.")
+        else:
+            print(f"[Command Error] in {ctx.command}: {error}")
+            await ctx.send(f"An error occurred executing this command: `{error}`")
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -68,6 +82,7 @@ def main() -> None:
         description="Searendipity NationStates manual and automated recruitment bot"
     )
     parser.add_argument("-n", "--nation-name", help="Your main nation name (identifies bot in User-Agent)")
+    parser.add_argument("-p", "--prefix", help="Command prefix character (e.g. ! or ?; default: both ! and ?)")
     parser.add_argument("--db", default="bot.db", help="Path to SQLite database file (default: bot.db)")
     args = parser.parse_args()
 
@@ -93,9 +108,16 @@ def main() -> None:
     owner_id_str = settings.get("OWNER_ID")
     owner_id = int(owner_id_str) if owner_id_str and owner_id_str.isdigit() else 0
 
+    if args.prefix:
+        prefixes = [args.prefix.strip()]
+    elif settings.get("COMMAND_PREFIX"):
+        prefixes = [p.strip() for p in settings["COMMAND_PREFIX"].split(",") if p.strip()]
+    else:
+        prefixes = ["!", "?"]
+
     connection = sqlite3.connect(args.db)
 
-    bot = SearendipityBot(connection, nation_name, owner_id)
+    bot = SearendipityBot(connection, nation_name, owner_id, prefixes)
     bot.run(token)
 
 if __name__ == "__main__":

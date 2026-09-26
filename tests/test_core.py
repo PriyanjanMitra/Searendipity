@@ -164,5 +164,34 @@ class TestReportAnalyticsAndFilters(unittest.TestCase):
         rendered_tg = tg_tmpl.render(telegram=tg, region="test_region")
         self.assertIn("Category: test_category", rendered_tg)
 
+    def test_cogs_commands_registered(self):
+        import sqlite3
+        import asyncio
+        from searendipity import SearendipityBot
+
+        conn = sqlite3.connect(":memory:")
+        bot = SearendipityBot(conn, "test_nation", 123456789, prefixes=["!", "?"])
+
+        async def load():
+            await bot.setup_hook()
+            command_names = [cmd.name for cmd in bot.commands]
+            expected = [
+                "config", "templates", "add", "setup", "remove", "clear",
+                "recruit", "stop", "forcestop", "queue", "timer", "stats",
+                "apiguild", "apiclient", "apistart", "apistop", "apirestart",
+                "apistatus", "apitemplates", "apiadd", "apisetup", "apiremove", "apiclear"
+            ]
+            for exp in expected:
+                self.assertIn(exp, command_names, f"Expected command '{exp}' to be registered.")
+
+            nation_cog = bot.get_cog('NationListener')
+            if nation_cog:
+                await nation_cog.cog_unload()
+            await bot.close()
+            conn.close()
+
+        asyncio.run(load())
+
 if __name__ == "__main__":
     unittest.main()
+
