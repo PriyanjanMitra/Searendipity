@@ -19,6 +19,7 @@ Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/
   - **Shared Queues**: Fairly distributes nations across recruiters working concurrently in the same guild.
   - **A/B Testing**: Automatically alternates through multiple configured templates for each category (`wa`, `newfound`, `refound`).
   - **1-Click Dispatch**: Generates Discord embeds with clickable URL buttons that pre-populate the NationStates compose window with up to 8 targets and template tags.
+  - **Strict Cooldown & Verified Progression**: Eliminates automatic message spam. Enforces strict wait times, verifies the previous list was marked as sent, and requires the recruiter to manually click `[Get Next List]` when ready.
   - **Containerise Support**: Optional browser container support opens links in specific Firefox Multi-Account Containers.
 - **🤖 Automated API Recruitment**:
   - Delivers background recruitment telegrams via the NationStates Telegram API (`tag:api`).
@@ -115,10 +116,24 @@ monitor live queues, and start recruiting.
 #### 🎮 Control Panel Buttons & Modals
 
 ##### Row 0 — Recruitment Controls
-- **`▶️ Start Recruiting`**: Opens a pop-up modal to enter cooldown interval (seconds, default 60s) and optional browser container name (e.g. for Containerise). Launches session and sends 1-click dispatch embeds to the channel.
-- **`⏹️ Stop Recruiting`**: Immediately cancels your active recruitment session.
+- **`▶️ Start Recruiting`**: Opens a pop-up modal to enter cooldown interval (seconds, default 60s) and optional browser container name (e.g. for Containerise). Launches session and delivers your first dispatch embed to the channel.
+- **`⏹️ Stop Recruiting`**: Immediately terminates your active recruitment session.
 - **`📊 View Queue`**: Shows live backlog numbers for WA admissions, newly founded, and refounded nations.
 - **`⏱️ Cooldown Guide`**: Displays official NationStates recruitment rate limits by nation age.
+
+###### 📬 Strict Batch Dispatch & Progression Flow
+When recruiting starts or the next list is requested, an interactive dispatch embed is sent to the channel with four action buttons:
+
+1. **`[Click to Send TG]`** (Link button): Opens the NationStates compose window pre-populated with up to 8 targets, your rotating template ID tag (`%TEMPLATE-#####%`), and tracking parameters.
+2. **`[✅ Mark as Sent]`**: After sending your telegram on NationStates, click this button to confirm delivery.
+   - Updates your stats on the recruiter leaderboard.
+   - Activates your strict cooldown timer and updates the embed with a dynamic countdown `<t:ready_at:R>`.
+   - Cannot be clicked multiple times.
+3. **`[⏭️ Get Next List]`**: Request the next recipient batch once your cooldown ends.
+   - **Verification Check**: Fails if you haven't clicked `Mark as Sent` yet (*"⚠️ Check Failed: You have not marked the current list as sent yet!"*).
+   - **Strict Wait Time**: Fails if the cooldown is still active (*"⏳ Strict Cooldown Active! You must wait another X seconds..."*).
+   - **Manual Progression**: The bot **never** automatically posts new batches when timers expire. You have full control over when to pull the next list.
+4. **`[⏹️ Stop Session]`**: Immediately cancels your recruitment session and disables the action buttons.
 
 ##### Row 1 — Template Management
 - **`📋 My Templates`**: Sends an embed listing all your registered templates with clickable links to their NationStates stats pages.

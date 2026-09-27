@@ -7,7 +7,7 @@ import jinja2
 import utility as util
 from src.cogs.template import TGTemplate, UserTemplates
 from src.cogs.api import APITGTemplate, APITemplates
-from src.cogs.recruit import RecruitmentManager, Queue
+from src.cogs.recruit import RecruitmentManager, Queue, RecruiterSession, BatchView
 from src.report.classes import Stats, TimeRange, Analytics, Recruit, Telegram, TelegramTemplate
 from src.report.filters import (
     renderRate, renderDate, methodName, displayNumberWithCommas,
@@ -234,6 +234,156 @@ class TestReportAnalyticsAndFilters(unittest.TestCase):
 
         api_setup_modal = APISetupModal(gui_cog)
         self.assertEqual(api_setup_modal.title, "Quick Generic API Template Setup")
+
+class TestStrictRecruitmentSession(unittest.TestCase):
+    def setUp(self):
+        class DummyBot:
+            guilds = []
+            def get_cog(self, name):
+                return None
+        self.bot = DummyBot()
+        self.manager = RecruitmentManager(self.bot, "test_nation")
+        self.user = type('User', (), {'id': 12345, 'mention': '<@12345>'})()
+        self.channel = type('Channel', (), {})()
+
+    def test_telegram_link_generation(self):
+        tpl = TGTemplate("standard_wa", 98765)
+        nations = ["nation_one", "nation_two"]
+
+        # Default browser profile (no container)
+        link = self.manager.generate_telegram_link(tpl, nations, container=None)
+        expected = "https://www.nationstates.net/page=compose_telegram?tgto=nation_one,nation_two&message=%TEMPLATE-98765%&generated_by=searendipity_bot__ran_by_test_nation"
+        self.assertEqual(link, expected)
+
+        # Multi-session container profile
+        link_container = self.manager.generate_telegram_link(tpl, nations, container="MainProfile")
+        expected_container = "https://www.nationstates.net/container=MainProfile/page=compose_telegram?tgto=nation_one,nation_two&message=%TEMPLATE-98765%&generated_by=searendipity_bot__ran_by_test_nation"
+        self.assertEqual(link_container, expected_container)
+
+    def test_batch_view_initialization(self):
+        session = RecruiterSession(
+            guild_id=1,
+            user_id=12345,
+            user=self.user,
+            channel=self.channel,
+            interval=60,
+            container=None,
+            current_nations=["nation_one"],
+            current_template=TGTemplate("wa", 111)
+        )
+        view = BatchView(session, self.manager)
+        self.assertEqual(len(view.children), 4)
+        labels = [item.label for item in view.children]
+        self.assertIn("Click to Send TG", labels)
+        self.assertIn("Mark as Sent", labels)
+        self.assertIn("Get Next List", labels)
+        self.assertIn("Stop Session", labels)
+
+    def test_mark_as_sent_logic(self):
+        import asyncio
+
+        session = RecruiterSession(
+            guild_id=1,
+            user_id=12345,
+            user=self.user,
+            channel=self.channel,
+            interval=60,
+            container=None,
+            current_nations=["nation_one"],
+            current_template=TGTemplate("wa", 111)
+        )
+        view = BatchView(session, self.manager)
+
+        class MockResponse:
+            def __init__(self):
+                self.messages = []
+                self.edits = []
+            async def send_message(self, content=None, **kwargs):
+                self.messages.append((content, kwargs))
+            async def edit_message(self, **kwargs):
+                self.edits.append(kwargs)
+
+        class MockInteraction:
+            def __init__(self, user_id=12345):
+                self.user = type('User', (), {'id': user_id, 'mention': f'<@{user_id}>'})()
+                self.response = MockResponse()
+
+        inter = MockInteraction(user_id=12345)
+
+        # Initial state
+        self.assertFalse(session.is_sent)
+        self.assertEqual(session.sent_at, 0.0)
+
+        # Mark as sent
+        mark_btn = [item for item in view.children if item.label == "Mark as Sent"][0]
+        asyncio.run(mark_btn.callback(inter))
+
+        self.assertTrue(session.is_sent)
+        self.assertGreater(session.sent_at, 0.0)
+        self.assertTrue(mark_btn.disabled)
+        self.assertEqual(mark_btn.label, "Sent!")
+
+        # Trying to mark as sent again should return warning
+        inter2 = MockInteraction(user_id=12345)
+        asyncio.run(mark_btn.callback(inter2))
+        self.assertTrue(any("already been marked as sent" in m[0] for m in inter2.response.messages))
+
+    def test_strict_wait_time_and_sent_check(self):
+        import asyncio
+
+        session = RecruiterSession(
+            guild_id=1,
+            user_id=12345,
+            user=self.user,
+            channel=self.channel,
+            interval=60,
+            container=None,
+            current_nations=["nation_one"],
+            current_template=TGTemplate("wa", 111)
+        )
+        view = BatchView(session, self.manager)
+
+        class MockResponse:
+            def __init__(self):
+                self.messages = []
+                self.edits = []
+            async def send_message(self, content=None, **kwargs):
+                self.messages.append((content, kwargs))
+            async def edit_message(self, **kwargs):
+                self.edits.append(kwargs)
+
+        class MockInteraction:
+            def __init__(self, user_id=12345):
+                self.user = type('User', (), {'id': user_id, 'mention': f'<@{user_id}>'})()
+                self.response = MockResponse()
+
+        next_btn = [item for item in view.children if item.label == "Get Next List"][0]
+
+        # Case 1: is_sent is False -> Check Failed, must mark as sent first
+        inter1 = MockInteraction(user_id=12345)
+        asyncio.run(next_btn.callback(inter1))
+        self.assertTrue(any("Check Failed" in m[0] for m in inter1.response.messages))
+
+        # Case 2: is_sent is True, but cooldown is still active (e.g. elapsed 10s < 60s)
+        session.is_sent = True
+        session.sent_at = time.time() - 10
+        inter2 = MockInteraction(user_id=12345)
+        asyncio.run(next_btn.callback(inter2))
+        self.assertTrue(any("Strict Cooldown Active" in m[0] for m in inter2.response.messages))
+
+        # Case 3: is_sent is True and cooldown is over (elapsed 65s >= 60s)
+        session.sent_at = time.time() - 65
+        inter3 = MockInteraction(user_id=12345)
+        dispatch_called = []
+        async def mock_dispatch(s):
+            dispatch_called.append(s)
+            return True
+        self.manager.dispatch_next_batch = mock_dispatch
+
+        asyncio.run(next_btn.callback(inter3))
+        self.assertEqual(len(dispatch_called), 1)
+        self.assertEqual(dispatch_called[0], session)
+        self.assertTrue(next_btn.disabled)
 
 if __name__ == "__main__":
     unittest.main()

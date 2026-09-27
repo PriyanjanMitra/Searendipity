@@ -7,7 +7,7 @@ from datetime import datetime, date
 
 from .guilds import GuildManager, Guild
 from .template import TemplateManager, TGTemplate, UserTemplates
-from .recruit import RecruitmentManager, WA_BACKLOG_SIZE, BACKLOG_SIZE
+from .recruit import RecruitmentManager, WA_BACKLOG_SIZE, BACKLOG_SIZE, RecruiterSession
 from .stats import StatsTracker
 from .api import APIRecruiter, APITGTemplate, APITemplates
 import utility as util
@@ -59,21 +59,28 @@ class RecruitModal(ui.Modal, title="Start Recruitment Session"):
             await interaction.response.send_message("You already have an active recruitment session running! Click **⏹️ Stop Recruiting** first.", ephemeral=True)
             return
 
-        # Start recruitment task
-        class MockContext:
-            def __init__(self, inter):
-                self.guild = inter.guild
-                self.author = inter.user
-                self.channel = inter.channel
-                self.prefix = "?"
-            async def send(self, *args, **kwargs):
-                return await self.channel.send(*args, **kwargs)
+        session = RecruiterSession(
+            guild_id=interaction.guild.id,
+            user_id=interaction.user.id,
+            user=interaction.user,
+            channel=interaction.channel,
+            interval=sec,
+            container=container_name,
+            indexes=[0, 0, 0]
+        )
+        recruiter.recruiters[key] = session
 
-        mock_ctx = MockContext(interaction)
-        task = asyncio.create_task(recruiter.recruit_task(mock_ctx, sec, container_name))
-        recruiter.recruiters[key] = task
+        await interaction.response.send_message(
+            f"🎯 Recruitment session started (strict wait time: **{sec}s**)! Preparing your first list...",
+            ephemeral=True
+        )
 
-        await interaction.response.send_message(f"🚀 Recruitment session started every **{sec}s**! Stand by for incoming nations in this channel.", ephemeral=True)
+        dispatched = await recruiter.dispatch_next_batch(session)
+        if not dispatched:
+            await interaction.followup.send(
+                "📭 The nation queue is currently empty. As soon as nations are founded or join WA, click **Get Next List**.",
+                ephemeral=True
+            )
 
 class AddTemplateModal(ui.Modal, title="Add Telegram Template"):
     destination = ui.TextInput(
@@ -259,8 +266,16 @@ class ForceStopModal(ui.Modal, title="Force Stop Recruiter Session"):
             await interaction.response.send_message(f"{member.display_name} does not have an active recruitment session.", ephemeral=True)
             return
 
-        task = recruiter.recruiters.pop(key)
-        task.cancel()
+        session = recruiter.recruiters.pop(key)
+        if session.last_message:
+            try:
+                view = discord.ui.View.from_message(session.last_message)
+                for item in view.children:
+                    if isinstance(item, discord.ui.Button) and not item.url:
+                        item.disabled = True
+                await session.last_message.edit(view=view)
+            except Exception:
+                pass
         await interaction.response.send_message(f"🛑 Successfully stopped recruitment session for {member.mention}!", ephemeral=True)
 
 class APIClientModal(ui.Modal, title="Set API Client Key"):
@@ -374,8 +389,16 @@ class ControlPanelView(ui.View):
         if key not in recruiter.recruiters:
             await interaction.response.send_message("You do not have an active recruitment session running.", ephemeral=True)
             return
-        task = recruiter.recruiters.pop(key)
-        task.cancel()
+        session = recruiter.recruiters.pop(key)
+        if session.last_message:
+            try:
+                view = discord.ui.View.from_message(session.last_message)
+                for item in view.children:
+                    if isinstance(item, discord.ui.Button) and not item.url:
+                        item.disabled = True
+                await session.last_message.edit(view=view)
+            except Exception:
+                pass
         await interaction.response.send_message("🛑 Your recruitment session has been stopped.", ephemeral=True)
 
     @ui.button(label="View Queue", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
