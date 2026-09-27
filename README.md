@@ -84,40 +84,67 @@ python searendipity.py -n "My_Nation"
 
 You can optionally specify a custom prefix with `-p` (e.g. `python searendipity.py -n "My_Nation" -p "?"`). Both `!` and `?` are supported by default.
 
-### Discord Bot Commands (`!` or `?`)
-
-#### Server Administration
-- `!config <@AdminRole> <@RecruitRole> [recruit_wa] [recruit_newfounds] [recruit_refounds]`: Configures roles and enabled categories for the server (Server Owner only).
-
-#### Template Management
-- `!setup <tgid>`: Registers a generic template (e.g. `!setup %TEMPLATE-12345%` or `!setup 12345`) across all destinations (WA, newfounds, refounds).
-- `!add <destination> <category> <tgid>`: Registers a template for a specific destination (`wa`, `newfound`, or `refound`). E.g. `!add wa greeting_a 12345`.
-- `!templates`: Lists your active registered templates in the server with quick links.
-- `!remove <category>`: Removes templates belonging to a specific category. E.g. `!remove greeting_a`.
-- `!clear`: Clears all your registered templates in the current server.
-
-#### Manual Recruitment
-- `!recruit [interval] [container]`: Starts an active recruitment session. Dispatches embeds every `interval` seconds (default 60s). Optionally pass container name for Containerise (e.g. `!recruit 60 MyContainer`).
-- `!stop`: Stops your active recruitment session.
-- `!forcestop <@User>`: As an administrator, terminates an idle or abandoned user session.
-- `!queue`: Displays real-time backlog queue counts for the server.
-- `!timer`: Shows recommended cooldown intervals based on nation age.
-- `!stats [since]`: Displays paginated recruiter leaderboard for the server (all-time or last N days, e.g. `!stats 7`).
-
-#### Automated API Recruitment (Bot Owner Only)
-- `!apiguild`: Binds API recruitment to the current server's queues.
-- `!apiclient <client_key>`: Sets the NationStates API client key.
-- `!apisetup <tgid> <key>`: Registers a generic API template across all destinations.
-- `!apiadd <destination> <category> <tgid> <key>`: Adds an API template with its secret key.
-- `!apistart`: Starts the background API telegram loop.
-- `!apistop`: Stops background API recruitment.
-- `!apirestart`: Restarts the API loop.
-- `!apistatus`: Displays API recruitment status, uptime, and telegram counters.
-- `!apitemplates`: Lists registered API templates and secret keys (sent to DM for security).
-- `!apiremove <category>`: Removes API templates by category.
-- `!apiclear`: Clears all registered API templates.
 
 ---
+
+### 🖥️ Interactive GUI Dashboard (`?start` or `!start`)
+
+You only need **one command**:
+
+```
+?start
+```
+*(or `!start`, `?panel`, `?gui`, `?menu`)*
+
+This displays the **Searendipity Control Panel**, giving 1-click access to all features via interactive Discord buttons and pop-up modal dialogs:
+
+```
+==================================================
+           🌊 SEARENDIPITY CONTROL PANEL
+==================================================
+Welcome! Use the buttons below to manage templates,
+monitor live queues, and start recruiting.
+
+📡 Live Queues:
+• WA Joins: 15  • Newfounds: 84  • Refounds: 42
+👤 Your Status:
+• Session: 🟢 Active (60s)  • Templates: 2 WA, 1 New, 1 Refound
+==================================================
+```
+
+#### 🎮 Control Panel Buttons & Modals
+
+##### Row 0 — Recruitment Controls
+- **`▶️ Start Recruiting`**: Opens a pop-up modal to enter cooldown interval (seconds, default 60s) and optional browser container name (e.g. for Containerise). Launches session and sends 1-click dispatch embeds to the channel.
+- **`⏹️ Stop Recruiting`**: Immediately cancels your active recruitment session.
+- **`📊 View Queue`**: Shows live backlog numbers for WA admissions, newly founded, and refounded nations.
+- **`⏱️ Cooldown Guide`**: Displays official NationStates recruitment rate limits by nation age.
+
+##### Row 1 — Template Management
+- **`📋 My Templates`**: Sends an embed listing all your registered templates with clickable links to their NationStates stats pages.
+- **`➕ Add Template`**: Opens a modal to register a template for a specific destination (`wa`, `newfound`, or `refound`), category label, and template ID (`%TEMPLATE-12345%` or `12345`).
+- **`⚡ Quick Setup`**: Opens a modal to set a single template ID across all three destinations with one click.
+- **`🗑️ Clear Templates`**: Clears all your registered templates in this server.
+
+##### Row 2 — Recruiter Statistics
+- **`🏆 Recruiter Leaderboard`**: Displays the server recruitment rankings and category breakdown with interactive pagination buttons.
+
+##### Row 3 — Server Administration & API Automation
+- **`⚙️ Server Config`**: *(Server Owner / Admin)* Opens a modal to configure Admin Role, Recruiter Role, and destination toggles.
+- **`🛑 Force Stop User`**: *(Server Owner / Admin)* Opens a modal to stop another member's idle or abandoned recruitment session.
+- **`🤖 API Recruiter`**: *(Bot Owner)* Opens the automated API recruitment sub-panel with buttons to bind the server, set client key, configure templates, and start/stop background API telegramming.
+
+---
+
+### ⌨️ Fallback Text Commands (Optional)
+
+If you prefer typing commands directly, all text commands remain supported:
+- **Administration**: `?config <@AdminRole> <@RecruitRole> [wa] [newfounds] [refounds]`
+- **Templates**: `?templates`, `?add <wa|newfound|refound> <category> <tgid>`, `?setup <tgid>`, `?remove <category>`, `?clear`
+- **Recruitment**: `?recruit [interval] [container]`, `?stop`, `?forcestop <@User>`, `?queue`, `?timer`
+- **Leaderboard**: `?stats [since_days]`
+- **API Recruitment**: `?apiguild`, `?apiclient <key>`, `?apistart`, `?apistop`, `?apirestart`, `?apistatus`, `?apitemplates`, `?apiadd`, `?apisetup`, `?apiremove`, `?apiclear`
+
 
 ## 📈 Generating Recruitment Reports
 

@@ -176,7 +176,7 @@ class TestReportAnalyticsAndFilters(unittest.TestCase):
             await bot.setup_hook()
             command_names = [cmd.name for cmd in bot.commands]
             expected = [
-                "config", "templates", "add", "setup", "remove", "clear",
+                "start", "config", "templates", "add", "setup", "remove", "clear",
                 "recruit", "stop", "forcestop", "queue", "timer", "stats",
                 "apiguild", "apiclient", "apistart", "apistop", "apirestart",
                 "apistatus", "apitemplates", "apiadd", "apisetup", "apiremove", "apiclear"
@@ -192,6 +192,50 @@ class TestReportAnalyticsAndFilters(unittest.TestCase):
 
         asyncio.run(load())
 
+    def test_gui_components_instantiation(self):
+        from src.cogs.gui import (
+            ControlPanelView, APIPanelView, RecruitModal, AddTemplateModal,
+            QuickSetupModal, ServerConfigModal, ForceStopModal,
+            APIClientModal, APIAddTemplateModal, APISetupModal, GuiManager
+        )
+
+        class DummyBot:
+            pass
+
+        gui_cog = GuiManager(DummyBot())
+
+        panel_view = ControlPanelView(gui_cog)
+        self.assertGreater(len(panel_view.children), 0)
+
+        api_view = APIPanelView(gui_cog)
+        self.assertGreater(len(api_view.children), 0)
+
+        # Verify all modals instantiate without error
+        r_modal = RecruitModal(gui_cog)
+        self.assertEqual(r_modal.title, "Start Recruitment Session")
+
+        add_modal = AddTemplateModal(gui_cog)
+        self.assertEqual(add_modal.title, "Add Telegram Template")
+
+        setup_modal = QuickSetupModal(gui_cog)
+        self.assertEqual(setup_modal.title, "Quick Generic Template Setup")
+
+        cfg_modal = ServerConfigModal(gui_cog)
+        self.assertEqual(cfg_modal.title, "Server Recruitment Configuration")
+
+        stop_modal = ForceStopModal(gui_cog)
+        self.assertEqual(stop_modal.title, "Force Stop Recruiter Session")
+
+        client_modal = APIClientModal(gui_cog)
+        self.assertEqual(client_modal.title, "Set API Client Key")
+
+        api_add_modal = APIAddTemplateModal(gui_cog)
+        self.assertEqual(api_add_modal.title, "Add API Telegram Template")
+
+        api_setup_modal = APISetupModal(gui_cog)
+        self.assertEqual(api_setup_modal.title, "Quick Generic API Template Setup")
+
 if __name__ == "__main__":
     unittest.main()
+
 

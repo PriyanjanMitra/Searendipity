@@ -21,6 +21,7 @@ from src.cogs.nation import NationListener
 from src.cogs.recruit import RecruitmentManager
 from src.cogs.stats import StatsTracker
 from src.cogs.api import APIRecruiter
+from src.cogs.gui import GuiManager
 
 VERSION = "0.1.0"
 
@@ -55,12 +56,14 @@ class SearendipityBot(commands.Bot):
         await self.add_cog(NationListener(self))
         await self.add_cog(StatsTracker(self))
         await self.add_cog(APIRecruiter(self))
+        await self.add_cog(GuiManager(self))
 
     async def on_ready(self):
         print(f"==================================================")
         print(f"  Searendipity v{VERSION} — Online as {self.user}")
         print(f"  Operating Nation: {self.nation}")
         print(f"  Command Prefixes: {', '.join(self.prefixes)}")
+        print(f"  Interactive GUI: Type ?start or !start to open the Control Panel!")
         print(f"==================================================")
 
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):
