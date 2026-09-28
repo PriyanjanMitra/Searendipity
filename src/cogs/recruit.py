@@ -15,6 +15,19 @@ BACKLOG_SIZE = 500
 MAX_NATIONS_PER_TG = 8
 
 @dataclass
+class Queue:
+    nations: deque
+
+    @classmethod
+    def create(cls, maxlen: int) -> "Queue":
+        return cls(deque(maxlen=maxlen))
+
+    def last_update(self) -> float:
+        if self.nations:
+            return self.nations[-1][1]
+        return 0.0
+
+@dataclass
 class RecruiterSession:
     guild_id: int
     user_id: int
@@ -29,6 +42,9 @@ class RecruiterSession:
     is_sent: bool = False
     sent_at: float = 0.0
     last_message: discord.Message | None = None
+    wa_queue: Queue = field(default_factory=lambda: Queue.create(WA_BACKLOG_SIZE))
+    newfound_queue: Queue = field(default_factory=lambda: Queue.create(BACKLOG_SIZE))
+    refound_queue: Queue = field(default_factory=lambda: Queue.create(BACKLOG_SIZE))
 
 class BatchView(discord.ui.View):
     def __init__(self, session: RecruiterSession, manager: "RecruitmentManager"):
@@ -142,7 +158,9 @@ class BatchView(discord.ui.View):
     @discord.ui.button(label="Stop Session", style=discord.ButtonStyle.danger, emoji="⏹️", row=0)
     async def btn_stop_session(self, interaction: discord.Interaction, button: discord.ui.Button):
         key = (self.session.guild_id, self.session.user_id)
-        self.manager.recruiters.pop(key, None)
+        session = self.manager.recruiters.pop(key, None)
+        if session:
+            self.manager.recycle_session_queues(session)
 
         for item in self.children:
             if isinstance(item, discord.ui.Button) and not item.url:
@@ -155,19 +173,6 @@ class BatchView(discord.ui.View):
             if not interaction.response.is_done():
                 await interaction.response.send_message("🛑 Recruitment session stopped.", ephemeral=True)
 
-@dataclass
-class Queue:
-    nations: deque
-
-    @classmethod
-    def create(cls, maxlen: int) -> "Queue":
-        return cls(deque(maxlen=maxlen))
-
-    def last_update(self) -> float:
-        if self.nations:
-            return self.nations[-1][1]
-        return 0.0
-
 class RecruitmentManager(commands.Cog):
     def __init__(self, bot: commands.Bot, nation: str):
         self.bot = bot
@@ -176,6 +181,7 @@ class RecruitmentManager(commands.Cog):
         self.wa_queue: dict[int, Queue] = {}
         self.newfound_queue: dict[int, Queue] = {}
         self.refound_queue: dict[int, Queue] = {}
+        self.rr_index: dict[tuple[int, int], int] = {}
         self.filtering_queue = deque(maxlen=100)
 
     @commands.Cog.listener()
@@ -200,18 +206,134 @@ class RecruitmentManager(commands.Cog):
         if guild_id not in self.refound_queue:
             self.refound_queue[guild_id] = Queue.create(BACKLOG_SIZE)
 
+    def _can_recruit_category(self, session: RecruiterSession, cat_idx: int) -> bool:
+        """Check if a recruiter session is able and configured to recruit a specific category."""
+        templates_cog: TemplateManager = self.bot.get_cog('TemplateManager')
+        guilds_cog: GuildManager = self.bot.get_cog('GuildManager')
+
+        key = (session.guild_id, session.user_id)
+        if templates_cog:
+            user_template = templates_cog.user_templates.get(key)
+            if user_template:
+                user_templates_list = [user_template.wa, user_template.newfound, user_template.refound]
+                if not user_templates_list[cat_idx]:
+                    return False
+
+        if guilds_cog:
+            guild_cfg = guilds_cog.guilds.get(session.guild_id)
+            if guild_cfg:
+                conditions = [guild_cfg.recruit_wa, guild_cfg.recruit_newfounds, guild_cfg.recruit_refounds]
+                if not conditions[cat_idx]:
+                    return False
+
+        return True
+
+    def _route_nation(self, cat_idx: int, nation: str, timestamp_offset: float = 0.0):
+        ts = time.time() + timestamp_offset
+        all_guild_ids = set(self.wa_queue.keys())
+        for guild in getattr(self.bot, "guilds", []):
+            all_guild_ids.add(guild.id)
+
+        for guild_id in all_guild_ids:
+            self._ensure_guild_queues(guild_id)
+
+            # Find all active recruiters in this guild eligible for this category
+            active_sessions = [
+                s for s in self.recruiters.values()
+                if s.guild_id == guild_id and self._can_recruit_category(s, cat_idx)
+            ]
+
+            if not active_sessions:
+                # No active eligible recruiters -> push to guild backlog
+                if cat_idx == 0:
+                    self.wa_queue[guild_id].nations.append((nation, ts))
+                elif cat_idx == 1:
+                    self.newfound_queue[guild_id].nations.append((nation, ts))
+                else:
+                    self.refound_queue[guild_id].nations.append((nation, ts))
+            else:
+                # Round-Robin / Split queues across active recruiters
+                rr_key = (guild_id, cat_idx)
+                current_rr = self.rr_index.get(rr_key, 0)
+                selected_session = active_sessions[current_rr % len(active_sessions)]
+                self.rr_index[rr_key] = (current_rr + 1) % len(active_sessions)
+
+                if cat_idx == 0:
+                    selected_session.wa_queue.nations.append((nation, ts))
+                elif cat_idx == 1:
+                    selected_session.newfound_queue.nations.append((nation, ts))
+                else:
+                    selected_session.refound_queue.nations.append((nation, ts))
+
+    def recycle_session_queues(self, session: RecruiterSession):
+        """Return un-dispatched nations from a stopping session back to the guild backlog."""
+        guild_id = session.guild_id
+        self._ensure_guild_queues(guild_id)
+        while session.wa_queue.nations:
+            self.wa_queue[guild_id].nations.appendleft(session.wa_queue.nations.pop())
+        while session.newfound_queue.nations:
+            self.newfound_queue[guild_id].nations.appendleft(session.newfound_queue.nations.pop())
+        while session.refound_queue.nations:
+            self.refound_queue[guild_id].nations.appendleft(session.refound_queue.nations.pop())
+
+    def pop_wa_for_session(self, session: RecruiterSession, max_count: int) -> list[str]:
+        result = []
+        while session.wa_queue.nations and len(result) < max_count:
+            nation, _ = session.wa_queue.nations.pop()
+            result.append(nation)
+        self._ensure_guild_queues(session.guild_id)
+        guild_q = self.wa_queue[session.guild_id]
+        while guild_q.nations and len(result) < max_count:
+            nation, _ = guild_q.nations.pop()
+            result.append(nation)
+        return result
+
+    def pop_new_for_session(self, session: RecruiterSession, max_count: int) -> list[str]:
+        result = []
+        while session.newfound_queue.nations and len(result) < max_count:
+            nation, _ = session.newfound_queue.nations.pop()
+            result.append(nation)
+        self._ensure_guild_queues(session.guild_id)
+        guild_q = self.newfound_queue[session.guild_id]
+        while guild_q.nations and len(result) < max_count:
+            nation, _ = guild_q.nations.pop()
+            result.append(nation)
+        return result
+
+    def pop_refound_for_session(self, session: RecruiterSession, max_count: int) -> list[str]:
+        result = []
+        while session.refound_queue.nations and len(result) < max_count:
+            nation, _ = session.refound_queue.nations.pop()
+            result.append(nation)
+        self._ensure_guild_queues(session.guild_id)
+        guild_q = self.refound_queue[session.guild_id]
+        while guild_q.nations and len(result) < max_count:
+            nation, _ = guild_q.nations.pop()
+            result.append(nation)
+        return result
+
+    def sort_queues_for_session(self, session: RecruiterSession) -> list[int]:
+        self._ensure_guild_queues(session.guild_id)
+        wa_time = max(session.wa_queue.last_update(), self.wa_queue[session.guild_id].last_update())
+        new_time = max(session.newfound_queue.last_update(), self.newfound_queue[session.guild_id].last_update())
+        ref_time = max(session.refound_queue.last_update(), self.refound_queue[session.guild_id].last_update())
+
+        queues = [
+            (0, wa_time),
+            (1, new_time),
+            (2, ref_time)
+        ]
+        queues.sort(reverse=True, key=lambda v: v[1])
+        return [v[0] for v in queues]
+
     def add_new_wa(self, nation: str):
-        for guild_id, q in self.wa_queue.items():
-            # WA joins receive a 2.5s priority bonus in queue sorting
-            q.nations.append((nation, time.time() + 2.5))
+        self._route_nation(0, nation, timestamp_offset=2.5)
 
     def add_newfound(self, nation: str):
-        for guild_id, q in self.newfound_queue.items():
-            q.nations.append((nation, time.time()))
+        self._route_nation(1, nation, timestamp_offset=0.0)
 
     def add_refound(self, nation: str):
-        for guild_id, q in self.refound_queue.items():
-            q.nations.append((nation, time.time()))
+        self._route_nation(2, nation, timestamp_offset=0.0)
 
     def pop_wa_nations(self, guild_id: int, max_count: int) -> list[str]:
         self._ensure_guild_queues(guild_id)
@@ -306,15 +428,15 @@ class RecruitmentManager(commands.Cog):
         do_refounds = (guild_cfg.recruit_refounds if guild_cfg else True) and len(user_template.refound) > 0
 
         conditions = [do_wa, do_newfounds, do_refounds]
-        pop_operations = [self.pop_wa_nations, self.pop_new_nations, self.pop_refound_nations]
+        pop_operations = [self.pop_wa_for_session, self.pop_new_for_session, self.pop_refound_for_session]
         user_templates_list = [user_template.wa, user_template.newfound, user_template.refound]
         labels = ["New WA Member", "Newly Founded", "Refounded"]
 
-        order = self.sort_queues(session.guild_id)
+        order = self.sort_queues_for_session(session)
 
         for i in order:
             if conditions[i] and user_templates_list[i]:
-                nations = pop_operations[i](session.guild_id, MAX_NATIONS_PER_TG)
+                nations = pop_operations[i](session, MAX_NATIONS_PER_TG)
                 if nations:
                     next_idx, tpl = self.select_template(user_templates_list[i], session.indexes[i])
                     session.indexes[i] = next_idx
@@ -341,10 +463,10 @@ class RecruitmentManager(commands.Cog):
                     embed.add_field(name="Recipients", value=", ".join([f"`{n}`" for n in nations]), inline=False)
                     embed.add_field(name="Status", value="⏳ **Pending Dispatch** (Click *Mark as Sent* once delivered)", inline=False)
 
-                    if session.container:
-                        embed.set_footer(text=f"Container: {session.container} | Strict Cooldown: {session.interval}s")
-                    else:
-                        embed.set_footer(text=f"Default Browser Profile | Strict Cooldown: {session.interval}s")
+                    active_count = len([s for s in self.recruiters.values() if s.guild_id == session.guild_id])
+                    parallel_str = f"⚡ Parallel Recruiters: {active_count} (Split)" if active_count > 1 else "Solo Recruiter"
+                    container_str = f" | Container: {session.container}" if session.container else ""
+                    embed.set_footer(text=f"{parallel_str} | Strict Cooldown: {session.interval}s{container_str}")
 
                     msg = await session.channel.send(content=f"{session.user.mention}", embed=embed, view=view)
                     session.last_message = msg
@@ -404,6 +526,7 @@ class RecruitmentManager(commands.Cog):
             return
 
         session = self.recruiters.pop(key)
+        self.recycle_session_queues(session)
         if session.last_message:
             try:
                 view = discord.ui.View.from_message(session.last_message)
@@ -427,6 +550,7 @@ class RecruitmentManager(commands.Cog):
             return
 
         session = self.recruiters.pop(key)
+        self.recycle_session_queues(session)
         if session.last_message:
             try:
                 view = discord.ui.View.from_message(session.last_message)
@@ -449,6 +573,8 @@ class RecruitmentManager(commands.Cog):
         new_len = len(self.newfound_queue[ctx.guild.id].nations)
         ref_len = len(self.refound_queue[ctx.guild.id].nations)
 
+        active_recruits = [s for s in self.recruiters.values() if s.guild_id == ctx.guild.id]
+
         embed = discord.Embed(
             title=f"📊 Queue Backlog: {ctx.guild.name}",
             color=0x3584e4,
@@ -457,6 +583,27 @@ class RecruitmentManager(commands.Cog):
         embed.add_field(name="World Assembly (WA)", value=f"`{wa_len}` / {WA_BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Newly Founded", value=f"`{new_len}` / {BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Refounded", value=f"`{ref_len}` / {BACKLOG_SIZE}", inline=True)
+
+        if active_recruits:
+            embed.add_field(
+                name="Parallel Queueing",
+                value=f"⚡ **{len(active_recruits)}** active recruiter(s) in this server (Round-Robin split).",
+                inline=False
+            )
+
+        caller_key = (ctx.guild.id, ctx.author.id)
+        if caller_key in self.recruiters:
+            user_s = self.recruiters[caller_key]
+            embed.add_field(
+                name="Your Parallel Queue",
+                value=(
+                    f"• **WA Joins:** `{len(user_s.wa_queue.nations)}`\n"
+                    f"• **Newly Founded:** `{len(user_s.newfound_queue.nations)}`\n"
+                    f"• **Refounded:** `{len(user_s.refound_queue.nations)}`"
+                ),
+                inline=False
+            )
+
         await ctx.send(embed=embed)
 
     @commands.command(name="timer", help="View recommended recruitment cooldown intervals: timer")

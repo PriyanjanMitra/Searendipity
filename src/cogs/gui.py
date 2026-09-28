@@ -267,6 +267,7 @@ class ForceStopModal(ui.Modal, title="Force Stop Recruiter Session"):
             return
 
         session = recruiter.recruiters.pop(key)
+        recruiter.recycle_session_queues(session)
         if session.last_message:
             try:
                 view = discord.ui.View.from_message(session.last_message)
@@ -390,6 +391,7 @@ class ControlPanelView(ui.View):
             await interaction.response.send_message("You do not have an active recruitment session running.", ephemeral=True)
             return
         session = recruiter.recruiters.pop(key)
+        recruiter.recycle_session_queues(session)
         if session.last_message:
             try:
                 view = discord.ui.View.from_message(session.last_message)
@@ -409,6 +411,8 @@ class ControlPanelView(ui.View):
         new_len = len(recruiter.newfound_queue[interaction.guild.id].nations)
         ref_len = len(recruiter.refound_queue[interaction.guild.id].nations)
 
+        active_recruits = [s for s in recruiter.recruiters.values() if s.guild_id == interaction.guild.id]
+
         embed = discord.Embed(
             title=f"📊 Queue Backlog — {interaction.guild.name}",
             color=0x3584e4,
@@ -417,6 +421,27 @@ class ControlPanelView(ui.View):
         embed.add_field(name="World Assembly (WA)", value=f"`{wa_len}` / {WA_BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Newly Founded", value=f"`{new_len}` / {BACKLOG_SIZE}", inline=True)
         embed.add_field(name="Refounded", value=f"`{ref_len}` / {BACKLOG_SIZE}", inline=True)
+
+        if active_recruits:
+            embed.add_field(
+                name="Parallel Queueing",
+                value=f"⚡ **{len(active_recruits)}** active recruiter(s) in this server (Round-Robin split).",
+                inline=False
+            )
+
+        user_key = (interaction.guild.id, interaction.user.id)
+        if user_key in recruiter.recruiters:
+            user_s = recruiter.recruiters[user_key]
+            embed.add_field(
+                name="Your Parallel Queue",
+                value=(
+                    f"• **WA Joins:** `{len(user_s.wa_queue.nations)}`\n"
+                    f"• **Newly Founded:** `{len(user_s.newfound_queue.nations)}`\n"
+                    f"• **Refounded:** `{len(user_s.refound_queue.nations)}`"
+                ),
+                inline=False
+            )
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @ui.button(label="Cooldown Guide", style=discord.ButtonStyle.secondary, emoji="⏱️", row=0)
@@ -661,6 +686,7 @@ class GuiManager(commands.Cog):
 
         user_key = (guild.id, user.id)
         is_recruiting = user_key in recruiter.recruiters
+        active_recruits = [s for s in recruiter.recruiters.values() if s.guild_id == guild.id]
 
         tpl_count_str = "None configured"
         if user_key in templates_cog.user_templates:
@@ -678,9 +704,19 @@ class GuiManager(commands.Cog):
             value=f"• **WA Joins:** `{wa_len}`\n• **Newfounds:** `{new_len}`\n• **Refounds:** `{ref_len}`",
             inline=True
         )
+
+        status_lines = [
+            f"• **Session:** {'🟢 Active' if is_recruiting else '⚪ Idle'}",
+            f"• **Active Recruiters:** `{len(active_recruits)}` (Parallel Split)" if len(active_recruits) > 1 else f"• **Active Recruiters:** `{len(active_recruits)}`",
+            f"• **Templates:** {tpl_count_str}"
+        ]
+        if is_recruiting:
+            user_s = recruiter.recruiters[user_key]
+            status_lines.append(f"• **Your Queue:** `{len(user_s.wa_queue.nations)}` WA, `{len(user_s.newfound_queue.nations)}` New, `{len(user_s.refound_queue.nations)}` Refound")
+
         embed.add_field(
             name="👤 Your Status",
-            value=f"• **Session:** {'🟢 Active' if is_recruiting else '⚪ Idle'}\n• **Templates:** {tpl_count_str}",
+            value="\n".join(status_lines),
             inline=True
         )
         embed.set_footer(text=f"Nation: {recruiter.nation} | Server: {guild.name}")

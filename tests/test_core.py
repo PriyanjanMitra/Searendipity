@@ -385,6 +385,136 @@ class TestStrictRecruitmentSession(unittest.TestCase):
         self.assertEqual(dispatch_called[0], session)
         self.assertTrue(next_btn.disabled)
 
+class TestParallelQueueing(unittest.TestCase):
+    def setUp(self):
+        class DummyBot:
+            guilds = []
+            def get_cog(self, name):
+                return None
+        self.bot = DummyBot()
+        self.manager = RecruitmentManager(self.bot, "test_nation")
+        self.guild_id = 1001
+        self.manager._ensure_guild_queues(self.guild_id)
+
+    def test_parallel_round_robin_routing(self):
+        alice = type('User', (), {'id': 1, 'mention': '<@1>'})()
+        bob = type('User', (), {'id': 2, 'mention': '<@2>'})()
+        ch = type('Channel', (), {})()
+
+        session_alice = RecruiterSession(
+            guild_id=self.guild_id,
+            user_id=1,
+            user=alice,
+            channel=ch,
+            interval=60,
+            container=None
+        )
+        session_bob = RecruiterSession(
+            guild_id=self.guild_id,
+            user_id=2,
+            user=bob,
+            channel=ch,
+            interval=60,
+            container=None
+        )
+
+        self.manager.recruiters[(self.guild_id, 1)] = session_alice
+        self.manager.recruiters[(self.guild_id, 2)] = session_bob
+
+        # Send 4 new WA nations through stream
+        self.manager.add_new_wa("nation_1")
+        self.manager.add_new_wa("nation_2")
+        self.manager.add_new_wa("nation_3")
+        self.manager.add_new_wa("nation_4")
+
+        # Alice should have nation_1 and nation_3
+        alice_nations = [n[0] for n in session_alice.wa_queue.nations]
+        self.assertEqual(alice_nations, ["nation_1", "nation_3"])
+
+        # Bob should have nation_2 and nation_4
+        bob_nations = [n[0] for n in session_bob.wa_queue.nations]
+        self.assertEqual(bob_nations, ["nation_2", "nation_4"])
+
+        # Exactly zero overlap between Alice and Bob's queues
+        self.assertTrue(set(alice_nations).isdisjoint(set(bob_nations)))
+
+    def test_parallel_popping_and_guild_backlog_fallback(self):
+        alice = type('User', (), {'id': 1, 'mention': '<@1>'})()
+        bob = type('User', (), {'id': 2, 'mention': '<@2>'})()
+        ch = type('Channel', (), {})()
+
+        session_alice = RecruiterSession(
+            guild_id=self.guild_id,
+            user_id=1,
+            user=alice,
+            channel=ch,
+            interval=60,
+            container=None
+        )
+        session_bob = RecruiterSession(
+            guild_id=self.guild_id,
+            user_id=2,
+            user=bob,
+            channel=ch,
+            interval=60,
+            container=None
+        )
+
+        self.manager.recruiters[(self.guild_id, 1)] = session_alice
+        self.manager.recruiters[(self.guild_id, 2)] = session_bob
+
+        # Put 2 nations into guild backlog from before recruiters joined
+        self.manager.newfound_queue[self.guild_id].nations.append(("backlog_1", time.time()))
+        self.manager.newfound_queue[self.guild_id].nations.append(("backlog_2", time.time()))
+
+        # Route 2 new nations in parallel
+        self.manager.add_newfound("live_1")
+        self.manager.add_newfound("live_2")
+
+        # Alice has live_1 in her queue, Bob has live_2 in his queue
+        # When Alice pops up to 2 nations: pops live_1 from personal queue, and backlog_2 from guild backlog
+        alice_popped = self.manager.pop_new_for_session(session_alice, 2)
+        self.assertEqual(len(alice_popped), 2)
+        self.assertIn("live_1", alice_popped)
+        self.assertIn("backlog_2", alice_popped)
+
+        # When Bob pops up to 2 nations: pops live_2 from personal queue, and backlog_1 from guild backlog
+        bob_popped = self.manager.pop_new_for_session(session_bob, 2)
+        self.assertEqual(len(bob_popped), 2)
+        self.assertIn("live_2", bob_popped)
+        self.assertIn("backlog_1", bob_popped)
+
+        # Neither recruiter got duplicate nations
+        self.assertTrue(set(alice_popped).isdisjoint(set(bob_popped)))
+
+    def test_queue_recycling_on_stop(self):
+        bob = type('User', (), {'id': 2, 'mention': '<@2>'})()
+        ch = type('Channel', (), {})()
+
+        session_bob = RecruiterSession(
+            guild_id=self.guild_id,
+            user_id=2,
+            user=bob,
+            channel=ch,
+            interval=60,
+            container=None
+        )
+        self.manager.recruiters[(self.guild_id, 2)] = session_bob
+
+        # Add nations to Bob's queue
+        self.manager.add_new_wa("bob_nation_1")
+        self.manager.add_new_wa("bob_nation_2")
+        self.assertEqual(len(session_bob.wa_queue.nations), 2)
+
+        # Bob stops session -> recycle
+        self.manager.recycle_session_queues(session_bob)
+        self.assertEqual(len(session_bob.wa_queue.nations), 0)
+
+        # Nations should now be in guild backlog
+        backlog_nations = [n[0] for n in self.manager.wa_queue[self.guild_id].nations]
+        self.assertIn("bob_nation_1", backlog_nations)
+        self.assertIn("bob_nation_2", backlog_nations)
+
 if __name__ == "__main__":
     unittest.main()
 

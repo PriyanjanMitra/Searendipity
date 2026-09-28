@@ -16,7 +16,9 @@ Inspired by and compatible with [Merethin/Moonlark](https://github.com/Merethin/
   - Verifies `tgcanrecruit` via the NationStates API to skip nations that disable recruitment telegrams.
   - Excludes seasoned nations (>500M population) and known jump point regions (`suspicious`, `artificial_solar_system`).
 - **👥 Discord Bot Manual Recruitment (Prefix: `!` or `?`)**:
-  - **Shared Queues**: Fairly distributes nations across recruiters working concurrently in the same guild.
+  - **⚡ Parallel Queueing (Multi-Recruiter)**: Multiple team members can manually recruit simultaneously! Incoming nations are fairly distributed round-robin across active recruiter sessions in parallel queues.
+  - **Zero Duplicate Telegrams**: Each nation is routed to exactly one recruiter so teammates never step on each other's toes or send duplicate telegrams.
+  - **Safe Queue Recycling**: When a recruiter stops, un-dispatched nations automatically return to the guild backlog for other recruiters to claim.
   - **A/B Testing**: Automatically alternates through multiple configured templates for each category (`wa`, `newfound`, `refound`).
   - **1-Click Dispatch**: Generates Discord embeds with clickable URL buttons that pre-populate the NationStates compose window with up to 8 targets and template tags.
   - **Strict Cooldown & Verified Progression**: Eliminates automatic message spam. Enforces strict wait times, verifies the previous list was marked as sent, and requires the recruiter to manually click `[Get Next List]` when ready.
@@ -134,6 +136,14 @@ When recruiting starts or the next list is requested, an interactive dispatch em
    - **Strict Wait Time**: Fails if the cooldown is still active (*"⏳ Strict Cooldown Active! You must wait another X seconds..."*).
    - **Manual Progression**: The bot **never** automatically posts new batches when timers expire. You have full control over when to pull the next list.
 4. **`[⏹️ Stop Session]`**: Immediately cancels your recruitment session and disables the action buttons.
+
+###### ⚡ Parallel Queueing & Multi-Recruiter Support
+- **Simultaneous Recruitment**: Multiple members of your server can recruit concurrently at their own pace.
+- **Round-Robin Split**: Arriving nations (from WA joins, new foundings, and refounds) are divided round-robin across all active recruiters in the server, ensuring equal distribution with **zero overlap** (no duplicate telegrams).
+- **Personal Parallel Buffers**: Each recruiter has their own parallel queue. A recruiter on a 60s cooldown will not drain incoming nations from a recruiter on a 180s cooldown.
+- **Guild Backlog Fallback**: When starting recruitment or when incoming stream volume is low, recruiters automatically draw available nations from the shared guild backlog.
+- **Automatic Recycling**: If a recruiter stops (`?stop` or `[Stop Session]`), any un-dispatched nations in their personal queue are safely returned to the guild backlog for other active recruiters to claim.
+- **Queue Transparency**: Both `?queue` and the `?start` dashboard show the count of active parallel recruiters and the user's personal queue depth.
 
 ##### Row 1 — Template Management
 - **`📋 My Templates`**: Sends an embed listing all your registered templates with clickable links to their NationStates stats pages.
